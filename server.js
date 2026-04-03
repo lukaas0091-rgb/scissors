@@ -18,6 +18,7 @@ const state = {
   busy: false,
   loginPreview: null,
   loginPreviewAt: null,
+  remoteSnapshot: null,
   liveStarted: false,
   liveConfig: {
     streamUrl: null,
@@ -350,14 +351,13 @@ function clamp(value, min, max) {
 
 async function captureRemoteFrame(page) {
   const screenshotBase64 = await page.screenshot({
-    type: "jpeg",
-    quality: 65,
+    type: "png",
     encoding: "base64"
   });
   const session = await getSessionStatus(page);
   const viewport = getViewport(page);
   const payload = {
-    image: `data:image/jpeg;base64,${screenshotBase64}`,
+    image: `data:image/png;base64,${screenshotBase64}`,
     capturedAt: new Date().toISOString(),
     currentUrl: session.currentUrl,
     loggedIn: session.loggedIn,
@@ -369,6 +369,7 @@ async function captureRemoteFrame(page) {
 
   state.loginPreview = payload.image;
   state.loginPreviewAt = payload.capturedAt;
+  state.remoteSnapshot = payload;
 
   return payload;
 }
@@ -423,6 +424,27 @@ async function clearTikTokSession(page) {
     }
     return null;
   }).catch(() => null);
+}
+
+async function openQrLoginMode(page) {
+  const labels = [
+    "Use QR code",
+    "Usar codigo QR",
+    "Usar código QR",
+    "QR code"
+  ];
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const clicked = await clickByVisibleText(page, labels);
+    if (clicked) {
+      await sleep(1400);
+      return true;
+    }
+
+    await sleep(800);
+  }
+
+  return false;
 }
 
 async function clickByVisibleText(page, labels) {
@@ -625,6 +647,7 @@ app.get("/remote-browser/open-login", async (req, res) => {
       await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
       await sleep(2500);
       await dismissCommonPopups(activePage);
+      await openQrLoginMode(activePage);
       return activePage;
     });
 
@@ -636,9 +659,26 @@ app.get("/remote-browser/open-login", async (req, res) => {
 
 app.get("/remote-browser/frame", async (req, res) => {
   try {
+    if (state.busy && state.remoteSnapshot) {
+      return res.json({
+        ok: true,
+        message: "Frame remoto en cache mientras el navegador esta ocupado.",
+        cached: true,
+        ...state.remoteSnapshot
+      });
+    }
+
     const page = await withBusyBrowser(async () => getPage());
     await respondWithRemoteFrame(res, "Frame remoto actualizado.", page);
   } catch (error) {
+    if (error.statusCode === 409 && state.remoteSnapshot) {
+      return res.json({
+        ok: true,
+        message: "Frame remoto en cache mientras el navegador esta ocupado.",
+        cached: true,
+        ...state.remoteSnapshot
+      });
+    }
     sendError(res, error);
   }
 });
@@ -655,6 +695,8 @@ app.post("/remote-browser/navigation", async (req, res) => {
         await activePage.goto(TIKTOK_HOME_URL, { waitUntil: "domcontentloaded" });
       } else if (action === "live-creator") {
         await activePage.goto(TIKTOK_LIVE_CREATOR_URL, { waitUntil: "domcontentloaded" });
+      } else if (action === "show-qr") {
+        await openQrLoginMode(activePage);
       } else if (action === "reload") {
         await activePage.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
       } else if (action === "back") {
