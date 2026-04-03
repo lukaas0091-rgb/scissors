@@ -149,6 +149,43 @@
         color: #ffe0e0;
       }
 
+      .preview {
+        margin-top: 18px;
+        background: linear-gradient(180deg, rgba(31, 39, 51, 0.92), rgba(22, 27, 34, 0.92));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+      }
+
+      .preview.hidden {
+        display: none;
+      }
+
+      .preview h2 {
+        margin: 0 0 10px;
+        font-size: 1.05rem;
+      }
+
+      .preview p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .preview img {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: #0f141c;
+      }
+
+      .preview-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+
       .flow {
         margin: 20px 0 0;
         padding-left: 20px;
@@ -203,9 +240,22 @@
 
       <div id="status" class="status">Esperando acción.</div>
 
+      <section id="loginPreviewPanel" class="preview hidden">
+        <h2>Vista previa del login</h2>
+        <p>
+          Este es el navegador oculto de Puppeteer. Si TikTok muestra un QR, escanéalo
+          con tu teléfono. Si no aparece QR, Render no es buen entorno para login manual
+          por usuario y contraseña.
+        </p>
+        <img id="loginPreviewImage" alt="Vista previa del login de TikTok" />
+        <div class="preview-actions">
+          <button id="refreshLoginBtn" class="ghost" type="button">Actualizar vista</button>
+        </div>
+      </section>
+
       <ol class="flow">
         <li>Presiona <strong>Vincular TikTok</strong>.</li>
-        <li>Completa el login en la sesión Puppeteer si tu entorno lo permite.</li>
+        <li>Si aparece un QR en la vista previa, escanéalo con la app de TikTok.</li>
         <li>Presiona <strong>Generar Stream Key</strong> para extraer server y key.</li>
         <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong>.</li>
       </ol>
@@ -220,13 +270,18 @@
       const loginBtn = document.getElementById("loginBtn");
       const generateBtn = document.getElementById("generateBtn");
       const startLiveBtn = document.getElementById("startLiveBtn");
+      const refreshLoginBtn = document.getElementById("refreshLoginBtn");
       const statusBox = document.getElementById("status");
       const serverInput = document.getElementById("server");
       const keyInput = document.getElementById("key");
+      const loginPreviewPanel = document.getElementById("loginPreviewPanel");
+      const loginPreviewImage = document.getElementById("loginPreviewImage");
+      let loginPollTimer = null;
 
       function setBusy(isBusy) {
         loginBtn.disabled = isBusy;
         generateBtn.disabled = isBusy;
+        refreshLoginBtn.disabled = isBusy;
         startLiveBtn.disabled = isBusy || !(serverInput.value && keyInput.value);
       }
 
@@ -236,6 +291,63 @@
         if (type) {
           statusBox.classList.add(type);
         }
+      }
+
+      function showLoginPreview(image) {
+        if (!image) {
+          return;
+        }
+
+        loginPreviewImage.src = image;
+        loginPreviewPanel.classList.remove("hidden");
+      }
+
+      function hideLoginPreview() {
+        loginPreviewPanel.classList.add("hidden");
+      }
+
+      function stopLoginPolling() {
+        if (loginPollTimer) {
+          clearInterval(loginPollTimer);
+          loginPollTimer = null;
+        }
+      }
+
+      async function refreshLoginStatus(silent = false) {
+        try {
+          const response = await fetch("/login-status");
+          const data = await response.json();
+
+          if (!response.ok || !data.ok) {
+            throw new Error(data.message || "No se pudo actualizar el login.");
+          }
+
+          if (data.loggedIn) {
+            stopLoginPolling();
+            hideLoginPreview();
+            setStatus("TikTok ya quedo autenticado en Puppeteer. Ahora puedes generar la stream key.", "success");
+            return;
+          }
+
+          if (data.loginPreview) {
+            showLoginPreview(data.loginPreview);
+          }
+
+          if (!silent) {
+            setStatus("Sesion abierta en Puppeteer. Escanea el QR si aparece en la vista previa.", "success");
+          }
+        } catch (error) {
+          if (!silent) {
+            setStatus(error.message, "error");
+          }
+        }
+      }
+
+      function startLoginPolling() {
+        stopLoginPolling();
+        loginPollTimer = setInterval(() => {
+          refreshLoginStatus(true);
+        }, 5000);
       }
 
       async function callApi(endpoint, loadingMessage) {
@@ -259,13 +371,28 @@
       loginBtn.addEventListener("click", async () => {
         try {
           const data = await callApi("/login", "Abriendo login TikTok en Puppeteer...");
-          const statusMessage = data.warning
-            ? `${data.message} ${data.warning}`
-            : data.message;
+          if (data.loginPreview) {
+            showLoginPreview(data.loginPreview);
+          }
+
+          const statusMessage = data.loggedIn
+            ? "TikTok ya estaba autenticado. Ya puedes generar la stream key."
+            : (data.warning ? `${data.message} ${data.warning}` : data.message);
           setStatus(statusMessage, "success");
+
+          if (!data.loggedIn) {
+            startLoginPolling();
+          } else {
+            hideLoginPreview();
+            stopLoginPolling();
+          }
         } catch (error) {
           setStatus(error.message, "error");
         }
+      });
+
+      refreshLoginBtn.addEventListener("click", async () => {
+        await refreshLoginStatus(false);
       });
 
       generateBtn.addEventListener("click", async () => {
