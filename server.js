@@ -208,6 +208,21 @@ function extractStreamData(payload, sourceUrl) {
   return result;
 }
 
+function formatBrowserLaunchError(error) {
+  const message = String(error && error.message ? error.message : error || "");
+
+  if (/Could not find Chrome|Could not find Chromium|Browser was not found/i.test(message)) {
+    const wrappedError = new Error(
+      "Puppeteer no encontro Chrome. En Render debes redeployar con el navegador instalado dentro del proyecto. " +
+        "Solucion: agrega el script postinstall de Puppeteer, usa una cache local como .cache/puppeteer y vuelve a desplegar."
+    );
+    wrappedError.statusCode = 500;
+    return wrappedError;
+  }
+
+  return error;
+}
+
 async function ensureBrowser() {
   if (state.browser) {
     return state.browser;
@@ -226,6 +241,9 @@ async function ensureBrowser() {
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage"
       ]
+    })
+    .catch((error) => {
+      throw formatBrowserLaunchError(error);
     })
     .then(async (browser) => {
       state.browser = browser;
