@@ -974,6 +974,7 @@
           refreshRemoteBrowserFrame(true);
         } catch (error) {
           resetLiveFields();
+          refreshRemoteBrowserFrame(true);
           setStatus(error.message, "error");
         }
       });
