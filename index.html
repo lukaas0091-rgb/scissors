@@ -64,6 +64,11 @@
         margin-bottom: 22px;
       }
 
+      .actions.secondary-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: -10px;
+      }
+
       button {
         border: none;
         border-radius: 14px;
@@ -211,6 +216,36 @@
         font-family: Consolas, monospace;
       }
 
+      .hidden-input {
+        display: none;
+      }
+
+      .hint {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .guide {
+        margin-top: 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .guide summary {
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .guide ol {
+        margin: 12px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
       .preview-actions {
         display: flex;
         gap: 10px;
@@ -258,6 +293,11 @@
         <button id="startLiveBtn" class="ghost" disabled>Iniciar LIVE</button>
       </section>
 
+      <section class="actions secondary-actions">
+        <button id="stopLiveBtn" class="ghost" disabled>Detener LIVE</button>
+        <button id="logoutBtn" class="ghost" type="button">Cerrar sesion</button>
+      </section>
+
       <section class="panel">
         <div class="field">
           <label for="server">Server</label>
@@ -279,13 +319,25 @@
           2. Exporta las cookies de <strong>tiktok.com</strong> en formato JSON.
           3. Pégalas aquí y pulsa <strong>Importar sesión</strong>.
         </p>
+        <input id="cookiesFileInput" class="hidden-input" type="file" accept=".json,application/json,text/plain" />
         <textarea
           id="cookiesInput"
           placeholder='Pega aqui el JSON de cookies de TikTok. Ejemplo: [{"name":"sessionid","value":"...","domain":".tiktok.com","path":"/"}]'
         ></textarea>
         <div class="preview-actions">
+          <button id="loadCookiesFileBtn" class="ghost" type="button">Subir archivo JSON</button>
           <button id="importCookiesBtn" class="secondary" type="button">Importar sesión</button>
         </div>
+        <p id="cookiesFileName" class="hint">Tambien puedes pegar el JSON manualmente si lo prefieres.</p>
+        <details class="guide">
+          <summary>No se como sacar el archivo</summary>
+          <ol>
+            <li>Abre TikTok en tu navegador normal y entra a tu cuenta.</li>
+            <li>Usa una extension de exportar cookies en formato JSON.</li>
+            <li>Guarda el archivo con las cookies de <strong>tiktok.com</strong>.</li>
+            <li>Vuelve aqui y pulsa <strong>Subir archivo JSON</strong>.</li>
+          </ol>
+        </details>
       </section>
 
       <section id="loginPreviewPanel" class="preview hidden">
@@ -318,23 +370,39 @@
       const loginBtn = document.getElementById("loginBtn");
       const generateBtn = document.getElementById("generateBtn");
       const startLiveBtn = document.getElementById("startLiveBtn");
+      const stopLiveBtn = document.getElementById("stopLiveBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
       const importCookiesBtn = document.getElementById("importCookiesBtn");
+      const loadCookiesFileBtn = document.getElementById("loadCookiesFileBtn");
       const refreshLoginBtn = document.getElementById("refreshLoginBtn");
       const statusBox = document.getElementById("status");
       const serverInput = document.getElementById("server");
       const keyInput = document.getElementById("key");
+      const cookiesFileInput = document.getElementById("cookiesFileInput");
+      const cookiesFileName = document.getElementById("cookiesFileName");
       const cookiesInput = document.getElementById("cookiesInput");
       const loginPreviewPanel = document.getElementById("loginPreviewPanel");
       const loginPreviewImage = document.getElementById("loginPreviewImage");
       let loginPollTimer = null;
+      let isBusy = false;
+      let liveStarted = false;
 
-      function setBusy(isBusy) {
+      function updateActionState() {
         loginBtn.disabled = isBusy;
         generateBtn.disabled = isBusy;
         refreshLoginBtn.disabled = isBusy;
         importCookiesBtn.disabled = isBusy;
+        loadCookiesFileBtn.disabled = isBusy;
+        logoutBtn.disabled = isBusy;
         cookiesInput.disabled = isBusy;
+        cookiesFileInput.disabled = isBusy;
         startLiveBtn.disabled = isBusy || !(serverInput.value && keyInput.value);
+        stopLiveBtn.disabled = isBusy || !liveStarted;
+      }
+
+      function setBusy(nextBusy) {
+        isBusy = nextBusy;
+        updateActionState();
       }
 
       function setStatus(message, type) {
@@ -444,6 +512,32 @@
         }
       }
 
+      function resetLiveFields() {
+        serverInput.value = "";
+        keyInput.value = "";
+        liveStarted = false;
+        updateActionState();
+      }
+
+      async function importCookiesText(rawValue, loadingMessage = "Importando sesion TikTok...") {
+        const data = await postJson(
+          "/import-cookies",
+          { cookies: rawValue },
+          loadingMessage
+        );
+
+        if (data.loginPreview) {
+          showLoginPreview(data.loginPreview);
+        }
+
+        stopLoginPolling();
+        hideLoginPreview();
+        liveStarted = false;
+        updateActionState();
+        setStatus("Sesion importada correctamente. Ya puedes generar la stream key.", "success");
+        return data;
+      }
+
       loginBtn.addEventListener("click", async () => {
         try {
           const data = await callApi("/login", "Abriendo login TikTok en Puppeteer...");
@@ -471,6 +565,29 @@
         await refreshLoginStatus(false);
       });
 
+      loadCookiesFileBtn.addEventListener("click", () => {
+        cookiesFileInput.click();
+      });
+
+      cookiesFileInput.addEventListener("change", async () => {
+        const [file] = cookiesFileInput.files || [];
+
+        if (!file) {
+          return;
+        }
+
+        try {
+          const text = await file.text();
+          cookiesInput.value = text;
+          cookiesFileName.textContent = `Archivo cargado: ${file.name}`;
+          await importCookiesText(text, "Leyendo e importando archivo de cookies...");
+        } catch (error) {
+          setStatus(error.message || "No se pudo leer el archivo de cookies.", "error");
+        } finally {
+          cookiesFileInput.value = "";
+        }
+      });
+
       importCookiesBtn.addEventListener("click", async () => {
         const rawValue = cookiesInput.value.trim();
 
@@ -480,19 +597,7 @@
         }
 
         try {
-          const data = await postJson(
-            "/import-cookies",
-            { cookies: rawValue },
-            "Importando sesion TikTok..."
-          );
-
-          if (data.loginPreview) {
-            showLoginPreview(data.loginPreview);
-          }
-
-          stopLoginPolling();
-          hideLoginPreview();
-          setStatus("Sesion importada correctamente. Ya puedes generar la stream key.", "success");
+          await importCookiesText(rawValue);
         } catch (error) {
           setStatus(error.message, "error");
         }
@@ -503,12 +608,11 @@
           const data = await callApi("/generate", "Generando stream key...");
           serverInput.value = data.server || "";
           keyInput.value = data.key || "";
-          startLiveBtn.disabled = !(serverInput.value && keyInput.value);
+          liveStarted = Boolean(data.liveStarted);
+          updateActionState();
           setStatus(data.message, "success");
         } catch (error) {
-          serverInput.value = "";
-          keyInput.value = "";
-          startLiveBtn.disabled = true;
+          resetLiveFields();
           setStatus(error.message, "error");
         }
       });
@@ -516,11 +620,40 @@
       startLiveBtn.addEventListener("click", async () => {
         try {
           const data = await callApi("/start-live", "Presionando Go LIVE...");
+          liveStarted = Boolean(data.liveStarted);
+          updateActionState();
           setStatus(data.message, "success");
         } catch (error) {
           setStatus(error.message, "error");
         }
       });
+
+      stopLiveBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi("/stop-live", "Intentando detener el LIVE...");
+          liveStarted = Boolean(data.liveStarted);
+          updateActionState();
+          setStatus(data.message, "success");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      logoutBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi("/logout", "Cerrando sesion TikTok...");
+          stopLoginPolling();
+          resetLiveFields();
+          if (data.loginPreview) {
+            showLoginPreview(data.loginPreview);
+          }
+          setStatus(data.message, "success");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      updateActionState();
     </script>
   </body>
 </html>
