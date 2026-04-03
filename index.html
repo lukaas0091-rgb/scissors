@@ -166,6 +166,10 @@
         display: none;
       }
 
+      .hidden {
+        display: none !important;
+      }
+
       .preview h2 {
         margin: 0 0 10px;
         font-size: 1.05rem;
@@ -206,9 +210,41 @@
       }
 
       .remote-browser-image {
+        display: block;
+        width: 100%;
         cursor: crosshair;
         min-height: 220px;
-        object-fit: cover;
+        aspect-ratio: 1366 / 900;
+        object-fit: contain;
+        background: #0f141c;
+      }
+
+      .remote-qr-panel {
+        margin-top: 14px;
+        padding: 16px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .remote-qr-panel strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .remote-qr-panel p {
+        margin: 0 0 12px;
+      }
+
+      .remote-qr-image {
+        display: block;
+        width: min(360px, 100%);
+        margin: 0 auto;
+        padding: 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: white;
+        image-rendering: pixelated;
       }
 
       .remote-input-field {
@@ -286,7 +322,8 @@
         <p>
           Esta vista muestra el navegador de Puppeteer dentro de la web. Haz click sobre la imagen,
           escribe en la caja inferior y usa los botones rapidos para iniciar sesion sin salir de la pagina.
-          Si quieres entrar por QR, pulsa <strong>Mostrar QR</strong> primero.
+          Lo mas estable es entrar con <strong>Usuario/email</strong>. Si quieres usar QR, pulsa
+          <strong>Mostrar QR</strong>.
         </p>
         <div class="remote-meta">
           <div>
@@ -299,8 +336,18 @@
           </div>
         </div>
         <img id="loginPreviewImage" class="remote-browser-image" alt="Navegador remoto de TikTok" />
+        <div id="remoteQrPanel" class="remote-qr-panel hidden">
+          <strong>QR ampliado</strong>
+          <p>
+            Si prefieres entrar con el celular, escanea este QR ampliado. Si el QR no te
+            deja confirmar, usa el boton <strong>Usuario/email</strong> y entra desde el
+            formulario remoto.
+          </p>
+          <img id="remoteQrImage" class="remote-qr-image" alt="Codigo QR ampliado de TikTok" />
+        </div>
         <div class="preview-actions">
           <button id="openRemoteLoginBtn" class="primary" type="button">Abrir login remoto</button>
+          <button id="showRemoteFormBtn" class="ghost" type="button">Usuario/email</button>
           <button id="showRemoteQrBtn" class="secondary" type="button">Mostrar QR</button>
           <button id="remoteBackBtn" class="ghost" type="button">Atras</button>
           <button id="remoteReloadBtn" class="ghost" type="button">Recargar</button>
@@ -326,7 +373,7 @@
 
       <ol class="flow">
         <li>Presiona <strong>Vincular TikTok</strong>.</li>
-        <li>Usa el navegador remoto para hacer click, escribir y completar el login.</li>
+        <li>Usa <strong>Usuario/email</strong> para abrir el formulario remoto y completar el login.</li>
         <li>Presiona <strong>Generar Stream Key</strong> para extraer server y key.</li>
         <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong> o <strong>Detener LIVE</strong>.</li>
       </ol>
@@ -345,6 +392,7 @@
       const logoutBtn = document.getElementById("logoutBtn");
       const refreshLoginBtn = document.getElementById("refreshLoginBtn");
       const openRemoteLoginBtn = document.getElementById("openRemoteLoginBtn");
+      const showRemoteFormBtn = document.getElementById("showRemoteFormBtn");
       const showRemoteQrBtn = document.getElementById("showRemoteQrBtn");
       const remoteBackBtn = document.getElementById("remoteBackBtn");
       const remoteReloadBtn = document.getElementById("remoteReloadBtn");
@@ -361,6 +409,8 @@
       const keyInput = document.getElementById("key");
       const loginPreviewPanel = document.getElementById("loginPreviewPanel");
       const loginPreviewImage = document.getElementById("loginPreviewImage");
+      const remoteQrPanel = document.getElementById("remoteQrPanel");
+      const remoteQrImage = document.getElementById("remoteQrImage");
       const remoteCurrentUrl = document.getElementById("remoteCurrentUrl");
       const remoteSessionState = document.getElementById("remoteSessionState");
       const remoteTextInput = document.getElementById("remoteTextInput");
@@ -374,6 +424,7 @@
         refreshLoginBtn.disabled = isBusy;
         logoutBtn.disabled = isBusy;
         openRemoteLoginBtn.disabled = isBusy;
+        showRemoteFormBtn.disabled = isBusy;
         showRemoteQrBtn.disabled = isBusy;
         remoteBackBtn.disabled = isBusy;
         remoteReloadBtn.disabled = isBusy;
@@ -453,9 +504,21 @@
           remoteCurrentUrl.textContent = data.currentUrl;
         }
 
-        remoteSessionState.textContent = data.loggedIn
-          ? "Sesion TikTok detectada"
-          : "Sin sesion TikTok";
+        if (data.loggedIn) {
+          remoteSessionState.textContent = "Sesion TikTok detectada";
+        } else if (data.qrImage) {
+          remoteSessionState.textContent = "QR listo para escanear";
+        } else {
+          remoteSessionState.textContent = "Sin sesion TikTok";
+        }
+
+        if (data.qrImage) {
+          remoteQrImage.src = data.qrImage;
+          remoteQrPanel.classList.remove("hidden");
+        } else {
+          remoteQrImage.removeAttribute("src");
+          remoteQrPanel.classList.add("hidden");
+        }
 
         if (typeof data.liveStarted === "boolean") {
           liveStarted = data.liveStarted;
@@ -582,11 +645,31 @@
 
       showRemoteQrBtn.addEventListener("click", async () => {
         try {
-          await postRemoteAction(
-            "/remote-browser/navigation",
-            { action: "show-qr" },
-            "Abriendo el QR de TikTok...",
-            "QR remoto actualizado. Escanealo desde tu telefono."
+          const data = await callApi("/remote-browser/show-qr", "Abriendo el QR de TikTok...");
+          updateRemoteBrowserFrame(data);
+          setStatus(
+            data.loggedIn
+              ? "Sesion TikTok detectada en TikTok."
+              : "QR remoto actualizado. Escanealo desde tu telefono o usa Usuario/email si falla.",
+            "success"
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      showRemoteFormBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi(
+            "/remote-browser/show-login-form",
+            "Abriendo formulario de usuario/email..."
+          );
+          updateRemoteBrowserFrame(data);
+          setStatus(
+            data.loggedIn
+              ? "Sesion TikTok detectada en el navegador remoto."
+              : "Formulario remoto abierto. Haz click en el campo y escribe tus datos.",
+            "success"
           );
         } catch (error) {
           setStatus(error.message, "error");
