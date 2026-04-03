@@ -6,6 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
 
+const TIKTOK_HOME_URL = "https://www.tiktok.com";
 const TIKTOK_LOGIN_URL = "https://www.tiktok.com/login";
 const TIKTOK_LIVE_CREATOR_URL = "https://www.tiktok.com/live/creator?lang=en";
 const DEFAULT_TIMEOUT_MS = 45000;
@@ -320,62 +321,6 @@ async function getSessionStatus(page) {
   };
 }
 
-function normalizeCookie(cookie) {
-  const normalized = {
-    name: String(cookie.name || "").trim(),
-    value: String(cookie.value || ""),
-    domain: cookie.domain,
-    path: cookie.path || "/",
-    secure: Boolean(cookie.secure),
-    httpOnly: Boolean(cookie.httpOnly)
-  };
-
-  if (cookie.sameSite && ["Strict", "Lax", "None"].includes(cookie.sameSite)) {
-    normalized.sameSite = cookie.sameSite;
-  }
-
-  if (typeof cookie.expires === "number" && Number.isFinite(cookie.expires)) {
-    normalized.expires = cookie.expires;
-  }
-
-  return normalized;
-}
-
-function parseCookiePayload(payload) {
-  let rawCookies = payload;
-
-  if (typeof payload === "string") {
-    rawCookies = JSON.parse(payload);
-  }
-
-  if (rawCookies && Array.isArray(rawCookies.cookies)) {
-    rawCookies = rawCookies.cookies;
-  }
-
-  if (!Array.isArray(rawCookies)) {
-    const error = new Error(
-      "El JSON de cookies no es valido. Debe ser un array o un objeto con la propiedad cookies."
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const cookies = rawCookies
-    .filter((cookie) => cookie && cookie.name && cookie.value !== undefined)
-    .map(normalizeCookie)
-    .filter((cookie) => /tiktok\.com$/i.test(String(cookie.domain || "").replace(/^\./, "")));
-
-  if (!cookies.length) {
-    const error = new Error(
-      "No encontre cookies de TikTok en el JSON. Exporta las cookies de tiktok.com y vuelve a intentar."
-    );
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return cookies;
-}
-
 async function updateLoginPreview(page) {
   const screenshotBase64 = await page.screenshot({
     type: "png",
@@ -389,6 +334,64 @@ async function updateLoginPreview(page) {
     image: state.loginPreview,
     capturedAt: state.loginPreviewAt
   };
+}
+
+function getViewport(page) {
+  const viewport = page.viewport() || {};
+  return {
+    width: Number(viewport.width) || 1366,
+    height: Number(viewport.height) || 900
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+async function captureRemoteFrame(page) {
+  const screenshotBase64 = await page.screenshot({
+    type: "jpeg",
+    quality: 65,
+    encoding: "base64"
+  });
+  const session = await getSessionStatus(page);
+  const viewport = getViewport(page);
+  const payload = {
+    image: `data:image/jpeg;base64,${screenshotBase64}`,
+    capturedAt: new Date().toISOString(),
+    currentUrl: session.currentUrl,
+    loggedIn: session.loggedIn,
+    cookiesFound: session.cookiesFound,
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    liveStarted: state.liveStarted
+  };
+
+  state.loginPreview = payload.image;
+  state.loginPreviewAt = payload.capturedAt;
+
+  return payload;
+}
+
+async function respondWithRemoteFrame(res, message, page) {
+  const frame = await captureRemoteFrame(page);
+  res.json({
+    ok: true,
+    message,
+    ...frame
+  });
+}
+
+function parseNormalizedCoordinate(rawValue, axisName) {
+  const value = Number(rawValue);
+
+  if (!Number.isFinite(value)) {
+    const error = new Error(`La coordenada ${axisName} no es valida.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return clamp(value, 0, 1);
 }
 
 async function clearTikTokSession(page) {
@@ -615,6 +618,181 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.get("/remote-browser/open-login", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
+      await sleep(2500);
+      await dismissCommonPopups(activePage);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Navegador remoto TikTok abierto.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get("/remote-browser/frame", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => getPage());
+    await respondWithRemoteFrame(res, "Frame remoto actualizado.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/remote-browser/navigation", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      const action = String(req.body && req.body.action ? req.body.action : "").trim();
+
+      if (action === "login") {
+        await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
+      } else if (action === "home") {
+        await activePage.goto(TIKTOK_HOME_URL, { waitUntil: "domcontentloaded" });
+      } else if (action === "live-creator") {
+        await activePage.goto(TIKTOK_LIVE_CREATOR_URL, { waitUntil: "domcontentloaded" });
+      } else if (action === "reload") {
+        await activePage.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+      } else if (action === "back") {
+        await activePage.goBack({ waitUntil: "domcontentloaded" }).catch(() => null);
+      } else {
+        const error = new Error("La accion de navegacion no es valida.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await sleep(1500);
+      await dismissCommonPopups(activePage);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Navegacion remota completada.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/remote-browser/click", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      const viewport = getViewport(activePage);
+      const normalizedX = parseNormalizedCoordinate(req.body && req.body.x, "x");
+      const normalizedY = parseNormalizedCoordinate(req.body && req.body.y, "y");
+      const clickX = Math.round(normalizedX * viewport.width);
+      const clickY = Math.round(normalizedY * viewport.height);
+
+      await activePage.mouse.click(clickX, clickY, { delay: 40 });
+      await sleep(700);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Click remoto enviado.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/remote-browser/type", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      const text = String(req.body && req.body.text ? req.body.text : "");
+      const clearFirst = Boolean(req.body && req.body.clearFirst);
+      const pressEnter = Boolean(req.body && req.body.pressEnter);
+
+      if (!text && !pressEnter && !clearFirst) {
+        const error = new Error("No recibi texto ni accion para escribir.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (clearFirst) {
+        await activePage.keyboard.down("Control");
+        await activePage.keyboard.press("KeyA");
+        await activePage.keyboard.up("Control");
+        await activePage.keyboard.press("Backspace");
+      }
+
+      if (text) {
+        await activePage.keyboard.type(text, { delay: 25 });
+      }
+
+      if (pressEnter) {
+        await activePage.keyboard.press("Enter");
+      }
+
+      await sleep(700);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Texto remoto enviado.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/remote-browser/key", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      const key = String(req.body && req.body.key ? req.body.key : "").trim();
+      const allowedKeys = new Set([
+        "Enter",
+        "Tab",
+        "Backspace",
+        "Escape",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Space"
+      ]);
+
+      if (!allowedKeys.has(key)) {
+        const error = new Error("La tecla remota no esta permitida.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await activePage.keyboard.press(key);
+      await sleep(500);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Tecla remota enviada.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/remote-browser/scroll", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      const deltaY = clamp(Number(req.body && req.body.deltaY ? req.body.deltaY : 0), -1600, 1600);
+
+      if (!Number.isFinite(deltaY) || deltaY === 0) {
+        const error = new Error("El scroll remoto no es valido.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await activePage.mouse.wheel({ deltaY });
+      await sleep(700);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Scroll remoto enviado.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get("/login", async (req, res) => {
   try {
     const payload = await withBusyBrowser(async () => {
@@ -639,50 +817,6 @@ app.get("/login", async (req, res) => {
       headless: true,
       warning:
         "En Render Free no ves el navegador real de Puppeteer. Por eso te devolvemos una vista previa del login para intentar entrar por QR.",
-      currentUrl: payload.session.currentUrl,
-      loggedIn: payload.session.loggedIn,
-      loginPreview: payload.preview.image,
-      loginPreviewAt: payload.preview.capturedAt
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.post("/import-cookies", async (req, res) => {
-  try {
-    const payload = await withBusyBrowser(async () => {
-      const cookies = parseCookiePayload(req.body && req.body.cookies ? req.body.cookies : req.body);
-      const page = await getPage();
-      const browserContext = page.browserContext();
-
-      await page.goto("https://www.tiktok.com", { waitUntil: "domcontentloaded" });
-      await browserContext.setCookie(...cookies);
-      await page.goto("https://www.tiktok.com/foryou", { waitUntil: "domcontentloaded" });
-      await sleep(2500);
-
-      const session = await getSessionStatus(page);
-      const preview = await updateLoginPreview(page);
-
-      return {
-        session,
-        preview,
-        importedCount: cookies.length
-      };
-    });
-
-    if (!payload.session.loggedIn) {
-      const error = new Error(
-        "Importe las cookies, pero TikTok aun no reconoce la sesion. Revisa que hayas exportado las cookies correctas de una sesion ya iniciada."
-      );
-      error.statusCode = 422;
-      throw error;
-    }
-
-    res.json({
-      ok: true,
-      message: "Sesion TikTok importada correctamente en Puppeteer.",
-      importedCount: payload.importedCount,
       currentUrl: payload.session.currentUrl,
       loggedIn: payload.session.loggedIn,
       loginPreview: payload.preview.image,
