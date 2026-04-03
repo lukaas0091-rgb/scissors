@@ -8,8 +8,22 @@ const HOST = "0.0.0.0";
 
 const TIKTOK_HOME_URL = "https://www.tiktok.com";
 const TIKTOK_LOGIN_URL = "https://www.tiktok.com/login";
+const TIKTOK_LOGIN_QR_URL = "https://www.tiktok.com/login/qrcode";
 const TIKTOK_LIVE_CREATOR_URL = "https://www.tiktok.com/live/creator?lang=en";
 const DEFAULT_TIMEOUT_MS = 45000;
+const DESKTOP_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36";
+const AUTH_COOKIE_NAMES = new Set([
+  "sessionid",
+  "sessionid_ss",
+  "sid_tt",
+  "sid_guard",
+  "uid_tt",
+  "uid_tt_ss",
+  "passport_auth_status",
+  "passport_auth_status_ss"
+]);
 
 const state = {
   browser: null,
@@ -256,12 +270,15 @@ async function ensureBrowser() {
 
   state.launchPromise = puppeteer
     .launch({
-      headless: true,
+      headless: process.env.PUPPETEER_HEADLESS === "false" ? false : "new",
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      ignoreDefaultArgs: ["--enable-automation"],
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage"
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--lang=en-US,en;q=0.9"
       ]
     })
     .catch((error) => {
@@ -278,9 +295,7 @@ async function ensureBrowser() {
 
       const pages = await browser.pages();
       state.page = pages[0] || (await browser.newPage());
-      await state.page.setViewport({ width: 1366, height: 900 });
-      state.page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
-      state.page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+      await preparePage(state.page);
 
       return browser;
     })
@@ -295,30 +310,76 @@ async function getPage() {
   await ensureBrowser();
 
   if (state.page && !state.page.isClosed()) {
+    await preparePage(state.page);
     return state.page;
   }
 
   state.page = await state.browser.newPage();
-  await state.page.setViewport({ width: 1366, height: 900 });
-  state.page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
-  state.page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+  await preparePage(state.page);
 
   return state.page;
+}
+
+async function preparePage(page) {
+  if (page.__tiktokPrepared) {
+    return page;
+  }
+
+  await page.setViewport({ width: 1366, height: 900, deviceScaleFactor: 1 });
+  await page.setUserAgent(DESKTOP_USER_AGENT);
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "en-US,en;q=0.9,es;q=0.8"
+  });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => false
+    });
+    Object.defineProperty(navigator, "platform", {
+      get: () => "Win32"
+    });
+    Object.defineProperty(navigator, "language", {
+      get: () => "en-US"
+    });
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["en-US", "en", "es"]
+    });
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3, 4, 5]
+    });
+
+    window.chrome = window.chrome || { runtime: {} };
+
+    if (navigator.permissions && navigator.permissions.query) {
+      const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (parameters) =>
+        parameters && parameters.name === "notifications"
+          ? Promise.resolve({ state: Notification.permission })
+          : originalQuery(parameters);
+    }
+  }).catch(() => null);
+  await page.emulateTimezone(process.env.TZ || "America/Mexico_City").catch(() => null);
+  page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+  page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+  page.__tiktokPrepared = true;
+
+  return page;
 }
 
 async function getSessionStatus(page) {
   const cookies = await page.cookies();
   const cookieNames = new Set(cookies.map((cookie) => cookie.name));
+  const currentUrl = page.url();
+  const authCookieNames = [...cookieNames].filter((name) => AUTH_COOKIE_NAMES.has(name));
 
   return {
-    currentUrl: page.url(),
+    currentUrl,
     loggedIn:
-      cookieNames.has("sessionid") ||
-      cookieNames.has("sid_tt") ||
-      cookieNames.has("uid_tt"),
+      authCookieNames.length > 0 ||
+      (/tiktok\.com/i.test(currentUrl) && !/\/login(\/|$)/i.test(currentUrl) && cookieNames.size > 3),
     cookiesFound: [...cookieNames].filter((name) =>
       /(session|sid|uid)/i.test(name)
-    )
+    ),
+    authCookiesFound: authCookieNames
   };
 }
 
@@ -349,6 +410,60 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+async function captureQrImage(page) {
+  const currentUrl = page.url();
+  if (!/\/login\/qrcode/i.test(currentUrl)) {
+    return null;
+  }
+
+  const handle = await page.evaluateHandle(() => {
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style &&
+        style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        rect.width > 80 &&
+        rect.height > 80
+      );
+    };
+
+    const candidates = Array.from(document.querySelectorAll("canvas, img, svg"));
+    return (
+      candidates.find((element) => {
+        if (!isVisible(element)) {
+          return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+        const ratio = rect.width / rect.height;
+        const centered =
+          rect.left > 0 &&
+          rect.top > 0 &&
+          rect.left + rect.width < window.innerWidth &&
+          rect.top + rect.height < window.innerHeight;
+
+        return ratio > 0.8 && ratio < 1.2 && rect.width >= 120 && centered;
+      }) || null
+    );
+  });
+
+  const element = handle.asElement();
+  if (!element) {
+    await handle.dispose();
+    return null;
+  }
+
+  const qrBase64 = await element.screenshot({
+    type: "png",
+    encoding: "base64"
+  });
+  await handle.dispose();
+
+  return `data:image/png;base64,${qrBase64}`;
+}
+
 async function captureRemoteFrame(page) {
   const screenshotBase64 = await page.screenshot({
     type: "png",
@@ -356,12 +471,15 @@ async function captureRemoteFrame(page) {
   });
   const session = await getSessionStatus(page);
   const viewport = getViewport(page);
+  const qrImage = await captureQrImage(page).catch(() => null);
   const payload = {
     image: `data:image/png;base64,${screenshotBase64}`,
+    qrImage,
     capturedAt: new Date().toISOString(),
     currentUrl: session.currentUrl,
     loggedIn: session.loggedIn,
     cookiesFound: session.cookiesFound,
+    authCookiesFound: session.authCookiesFound,
     viewportWidth: viewport.width,
     viewportHeight: viewport.height,
     liveStarted: state.liveStarted
@@ -427,6 +545,14 @@ async function clearTikTokSession(page) {
 }
 
 async function openQrLoginMode(page) {
+  await page.goto(TIKTOK_LOGIN_QR_URL, { waitUntil: "domcontentloaded" }).catch(() => null);
+  await sleep(2000);
+  await dismissCommonPopups(page);
+
+  if (/\/login\/qrcode/i.test(page.url())) {
+    return true;
+  }
+
   const labels = [
     "Use QR code",
     "Usar codigo QR",
@@ -442,6 +568,58 @@ async function openQrLoginMode(page) {
     }
 
     await sleep(800);
+  }
+
+  return false;
+}
+
+async function hasVisibleInputs(page) {
+  return page.evaluate(() => {
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style &&
+        style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+
+    return Array.from(document.querySelectorAll("input")).some((element) =>
+      isVisible(element)
+    );
+  });
+}
+
+async function openCredentialLoginMode(page) {
+  await page.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" }).catch(() => null);
+  await sleep(2000);
+  await dismissCommonPopups(page);
+
+  if (await hasVisibleInputs(page).catch(() => false)) {
+    return true;
+  }
+
+  const labels = [
+    "Use phone / email / username",
+    "Use phone / email / username",
+    "Usar telefono / correo / usuario",
+    "Usar telefono, correo o usuario",
+    "Usar correo o usuario",
+    "Use phone or email",
+    "Use email / username",
+    "Use email or username"
+  ];
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const clicked = await clickByVisibleText(page, labels);
+    await sleep(clicked ? 1800 : 900);
+
+    if (await hasVisibleInputs(page).catch(() => false)) {
+      return true;
+    }
   }
 
   return false;
@@ -647,11 +825,39 @@ app.get("/remote-browser/open-login", async (req, res) => {
       await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
       await sleep(2500);
       await dismissCommonPopups(activePage);
-      await openQrLoginMode(activePage);
+      await openCredentialLoginMode(activePage);
       return activePage;
     });
 
     await respondWithRemoteFrame(res, "Navegador remoto TikTok abierto.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get("/remote-browser/show-qr", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      await openQrLoginMode(activePage);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "QR de TikTok abierto.", page);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get("/remote-browser/show-login-form", async (req, res) => {
+  try {
+    const page = await withBusyBrowser(async () => {
+      const activePage = await getPage();
+      await openCredentialLoginMode(activePage);
+      return activePage;
+    });
+
+    await respondWithRemoteFrame(res, "Formulario de acceso TikTok abierto.", page);
   } catch (error) {
     sendError(res, error);
   }
@@ -687,16 +893,27 @@ app.post("/remote-browser/navigation", async (req, res) => {
   try {
     const page = await withBusyBrowser(async () => {
       const activePage = await getPage();
-      const action = String(req.body && req.body.action ? req.body.action : "").trim();
+      const action = String(
+        (req.body && req.body.action) || req.query.action || ""
+      )
+        .trim()
+        .toLowerCase();
 
-      if (action === "login") {
+      if (action === "login" || action === "open-login") {
         await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
       } else if (action === "home") {
         await activePage.goto(TIKTOK_HOME_URL, { waitUntil: "domcontentloaded" });
       } else if (action === "live-creator") {
         await activePage.goto(TIKTOK_LIVE_CREATOR_URL, { waitUntil: "domcontentloaded" });
-      } else if (action === "show-qr") {
+      } else if (action === "show-qr" || action === "qr" || action === "qrcode") {
         await openQrLoginMode(activePage);
+      } else if (
+        action === "show-login-form" ||
+        action === "show-form" ||
+        action === "credentials" ||
+        action === "email-login"
+      ) {
+        await openCredentialLoginMode(activePage);
       } else if (action === "reload") {
         await activePage.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
       } else if (action === "back") {
