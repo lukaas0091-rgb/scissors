@@ -184,66 +184,35 @@
         background: #0f141c;
       }
 
-      .manual-login {
-        margin-top: 18px;
-        background: linear-gradient(180deg, rgba(31, 39, 51, 0.92), rgba(22, 27, 34, 0.92));
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 18px;
+      .remote-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
       }
 
-      .manual-login h2 {
-        margin: 0 0 10px;
-        font-size: 1.05rem;
-      }
-
-      .manual-login p {
-        margin: 0 0 12px;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-
-      textarea {
-        width: 100%;
-        min-height: 180px;
-        resize: vertical;
-        border: 1px solid var(--border);
+      .remote-meta div {
+        padding: 10px 12px;
         border-radius: 12px;
-        padding: 12px 14px;
-        background: rgba(0, 0, 0, 0.18);
-        color: var(--text);
-        font-size: 0.95rem;
-        font-family: Consolas, monospace;
-      }
-
-      .hidden-input {
-        display: none;
-      }
-
-      .hint {
-        margin: 10px 0 0;
-        color: var(--muted);
-        font-size: 0.9rem;
-      }
-
-      .guide {
-        margin-top: 14px;
         border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 12px 14px;
         background: rgba(255, 255, 255, 0.03);
       }
 
-      .guide summary {
-        cursor: pointer;
-        font-weight: 700;
+      .remote-meta strong {
+        display: block;
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 4px;
       }
 
-      .guide ol {
-        margin: 12px 0 0;
-        padding-left: 18px;
-        color: var(--muted);
-        line-height: 1.6;
+      .remote-browser-image {
+        cursor: crosshair;
+        min-height: 220px;
+        object-fit: cover;
+      }
+
+      .remote-input-field {
+        margin-top: 14px;
       }
 
       .preview-actions {
@@ -283,8 +252,8 @@
     <main class="app">
       <h1>TikTok LIVE Key</h1>
       <p class="lead">
-        Vincula tu sesión TikTok, genera la stream key para OBS y dispara el botón
-        <strong>Go LIVE</strong> desde un solo panel.
+        Inicia sesión en TikTok desde esta misma página, genera la stream key para OBS
+        y controla el LIVE desde un solo panel.
       </p>
 
       <section class="actions">
@@ -312,52 +281,52 @@
 
       <div id="status" class="status">Esperando acción.</div>
 
-      <section class="manual-login">
-        <h2>Login manual recomendado</h2>
+      <section id="loginPreviewPanel" class="preview">
+        <h2>Navegador remoto TikTok</h2>
         <p>
-          1. Abre TikTok en tu propio navegador y entra a tu cuenta.
-          2. Exporta las cookies de <strong>tiktok.com</strong> en formato JSON.
-          3. Pégalas aquí y pulsa <strong>Importar sesión</strong>.
+          Esta vista muestra el navegador de Puppeteer dentro de la web. Haz click sobre la imagen,
+          escribe en la caja inferior y usa los botones rapidos para iniciar sesion sin salir de la pagina.
         </p>
-        <input id="cookiesFileInput" class="hidden-input" type="file" accept=".json,application/json,text/plain" />
-        <textarea
-          id="cookiesInput"
-          placeholder='Pega aqui el JSON de cookies de TikTok. Ejemplo: [{"name":"sessionid","value":"...","domain":".tiktok.com","path":"/"}]'
-        ></textarea>
-        <div class="preview-actions">
-          <button id="loadCookiesFileBtn" class="ghost" type="button">Subir archivo JSON</button>
-          <button id="importCookiesBtn" class="secondary" type="button">Importar sesión</button>
+        <div class="remote-meta">
+          <div>
+            <strong>URL actual</strong>
+            <span id="remoteCurrentUrl">Todavia no se abrio el navegador.</span>
+          </div>
+          <div>
+            <strong>Estado de sesion</strong>
+            <span id="remoteSessionState">Sin sesion.</span>
+          </div>
         </div>
-        <p id="cookiesFileName" class="hint">Tambien puedes pegar el JSON manualmente si lo prefieres.</p>
-        <details class="guide">
-          <summary>No se como sacar el archivo</summary>
-          <ol>
-            <li>Abre TikTok en tu navegador normal y entra a tu cuenta.</li>
-            <li>Usa una extension de exportar cookies en formato JSON.</li>
-            <li>Guarda el archivo con las cookies de <strong>tiktok.com</strong>.</li>
-            <li>Vuelve aqui y pulsa <strong>Subir archivo JSON</strong>.</li>
-          </ol>
-        </details>
-      </section>
-
-      <section id="loginPreviewPanel" class="preview hidden">
-        <h2>Vista previa del login</h2>
-        <p>
-          Este es el navegador oculto de Puppeteer. Si TikTok muestra un QR, escanéalo
-          con tu teléfono. Si no aparece QR, Render no es buen entorno para login manual
-          por usuario y contraseña.
-        </p>
-        <img id="loginPreviewImage" alt="Vista previa del login de TikTok" />
+        <img id="loginPreviewImage" class="remote-browser-image" alt="Navegador remoto de TikTok" />
         <div class="preview-actions">
+          <button id="openRemoteLoginBtn" class="primary" type="button">Abrir login remoto</button>
+          <button id="remoteBackBtn" class="ghost" type="button">Atras</button>
+          <button id="remoteReloadBtn" class="ghost" type="button">Recargar</button>
           <button id="refreshLoginBtn" class="ghost" type="button">Actualizar vista</button>
+        </div>
+        <div class="preview-actions">
+          <button id="remoteScrollUpBtn" class="ghost" type="button">Scroll arriba</button>
+          <button id="remoteScrollDownBtn" class="ghost" type="button">Scroll abajo</button>
+          <button id="remoteTabBtn" class="ghost" type="button">Tab</button>
+          <button id="remoteEnterBtn" class="ghost" type="button">Enter</button>
+          <button id="remoteBackspaceBtn" class="ghost" type="button">Backspace</button>
+        </div>
+        <div class="field remote-input-field">
+          <label for="remoteTextInput">Escribir en el navegador remoto</label>
+          <input id="remoteTextInput" type="text" placeholder="Correo, usuario, codigo o texto para TikTok" />
+        </div>
+        <div class="preview-actions">
+          <button id="remoteTypeBtn" class="secondary" type="button">Escribir</button>
+          <button id="remoteTypeEnterBtn" class="ghost" type="button">Escribir y Enter</button>
+          <button id="remoteClearTypeBtn" class="ghost" type="button">Limpiar campo</button>
         </div>
       </section>
 
       <ol class="flow">
         <li>Presiona <strong>Vincular TikTok</strong>.</li>
-        <li>Si aparece un QR en la vista previa, escanéalo con la app de TikTok.</li>
+        <li>Usa el navegador remoto para hacer click, escribir y completar el login.</li>
         <li>Presiona <strong>Generar Stream Key</strong> para extraer server y key.</li>
-        <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong>.</li>
+        <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong> o <strong>Detener LIVE</strong>.</li>
       </ol>
 
       <p class="note">
@@ -372,18 +341,27 @@
       const startLiveBtn = document.getElementById("startLiveBtn");
       const stopLiveBtn = document.getElementById("stopLiveBtn");
       const logoutBtn = document.getElementById("logoutBtn");
-      const importCookiesBtn = document.getElementById("importCookiesBtn");
-      const loadCookiesFileBtn = document.getElementById("loadCookiesFileBtn");
       const refreshLoginBtn = document.getElementById("refreshLoginBtn");
+      const openRemoteLoginBtn = document.getElementById("openRemoteLoginBtn");
+      const remoteBackBtn = document.getElementById("remoteBackBtn");
+      const remoteReloadBtn = document.getElementById("remoteReloadBtn");
+      const remoteScrollUpBtn = document.getElementById("remoteScrollUpBtn");
+      const remoteScrollDownBtn = document.getElementById("remoteScrollDownBtn");
+      const remoteTabBtn = document.getElementById("remoteTabBtn");
+      const remoteEnterBtn = document.getElementById("remoteEnterBtn");
+      const remoteBackspaceBtn = document.getElementById("remoteBackspaceBtn");
+      const remoteTypeBtn = document.getElementById("remoteTypeBtn");
+      const remoteTypeEnterBtn = document.getElementById("remoteTypeEnterBtn");
+      const remoteClearTypeBtn = document.getElementById("remoteClearTypeBtn");
       const statusBox = document.getElementById("status");
       const serverInput = document.getElementById("server");
       const keyInput = document.getElementById("key");
-      const cookiesFileInput = document.getElementById("cookiesFileInput");
-      const cookiesFileName = document.getElementById("cookiesFileName");
-      const cookiesInput = document.getElementById("cookiesInput");
       const loginPreviewPanel = document.getElementById("loginPreviewPanel");
       const loginPreviewImage = document.getElementById("loginPreviewImage");
-      let loginPollTimer = null;
+      const remoteCurrentUrl = document.getElementById("remoteCurrentUrl");
+      const remoteSessionState = document.getElementById("remoteSessionState");
+      const remoteTextInput = document.getElementById("remoteTextInput");
+      let remoteFramePollTimer = null;
       let isBusy = false;
       let liveStarted = false;
 
@@ -391,11 +369,19 @@
         loginBtn.disabled = isBusy;
         generateBtn.disabled = isBusy;
         refreshLoginBtn.disabled = isBusy;
-        importCookiesBtn.disabled = isBusy;
-        loadCookiesFileBtn.disabled = isBusy;
         logoutBtn.disabled = isBusy;
-        cookiesInput.disabled = isBusy;
-        cookiesFileInput.disabled = isBusy;
+        openRemoteLoginBtn.disabled = isBusy;
+        remoteBackBtn.disabled = isBusy;
+        remoteReloadBtn.disabled = isBusy;
+        remoteScrollUpBtn.disabled = isBusy;
+        remoteScrollDownBtn.disabled = isBusy;
+        remoteTabBtn.disabled = isBusy;
+        remoteEnterBtn.disabled = isBusy;
+        remoteBackspaceBtn.disabled = isBusy;
+        remoteTypeBtn.disabled = isBusy;
+        remoteTypeEnterBtn.disabled = isBusy;
+        remoteClearTypeBtn.disabled = isBusy;
+        remoteTextInput.disabled = isBusy;
         startLiveBtn.disabled = isBusy || !(serverInput.value && keyInput.value);
         stopLiveBtn.disabled = isBusy || !liveStarted;
       }
@@ -413,48 +399,77 @@
         }
       }
 
-      function showLoginPreview(image) {
-        if (!image) {
-          return;
-        }
+      function setRemotePlaceholder() {
+        const svg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="1366" height="900" viewBox="0 0 1366 900">
+            <rect width="1366" height="900" fill="#0f141c"/>
+            <text x="683" y="430" text-anchor="middle" fill="#e6edf3" font-size="42" font-family="Segoe UI, sans-serif">
+              Pulsa Vincular TikTok
+            </text>
+            <text x="683" y="490" text-anchor="middle" fill="#96a3b5" font-size="24" font-family="Segoe UI, sans-serif">
+              para abrir el navegador remoto
+            </text>
+          </svg>
+        `;
+        loginPreviewImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      }
 
-        loginPreviewImage.src = image;
+      function showLoginPreview(image) {
+        if (image) {
+          loginPreviewImage.src = image;
+        }
         loginPreviewPanel.classList.remove("hidden");
       }
 
       function hideLoginPreview() {
-        loginPreviewPanel.classList.add("hidden");
+        loginPreviewPanel.classList.remove("hidden");
       }
 
-      function stopLoginPolling() {
-        if (loginPollTimer) {
-          clearInterval(loginPollTimer);
-          loginPollTimer = null;
+      async function requestJson(endpoint, options = {}) {
+        const response = await fetch(endpoint, options);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || "Error inesperado.");
         }
+
+        return data;
       }
 
-      async function refreshLoginStatus(silent = false) {
+      function updateRemoteBrowserFrame(data) {
+        if (!data) {
+          return;
+        }
+
+        if (data.image) {
+          loginPreviewImage.src = data.image;
+        }
+
+        if (data.currentUrl) {
+          remoteCurrentUrl.textContent = data.currentUrl;
+        }
+
+        remoteSessionState.textContent = data.loggedIn
+          ? "Sesion TikTok detectada"
+          : "Sin sesion TikTok";
+
+        if (typeof data.liveStarted === "boolean") {
+          liveStarted = data.liveStarted;
+        }
+
+        showLoginPreview(data.image);
+        updateActionState();
+      }
+
+      async function refreshRemoteBrowserFrame(silent = false) {
         try {
-          const response = await fetch("/login-status");
-          const data = await response.json();
+          const data = await requestJson("/remote-browser/frame");
+          updateRemoteBrowserFrame(data);
 
-          if (!response.ok || !data.ok) {
-            throw new Error(data.message || "No se pudo actualizar el login.");
-          }
-
-          if (data.loggedIn) {
-            stopLoginPolling();
-            hideLoginPreview();
-            setStatus("TikTok ya quedo autenticado en Puppeteer. Ahora puedes generar la stream key.", "success");
-            return;
-          }
-
-          if (data.loginPreview) {
-            showLoginPreview(data.loginPreview);
-          }
-
-          if (!silent) {
-            setStatus("Sesion abierta en Puppeteer. Escanea el QR si aparece en la vista previa.", "success");
+          if (data.loggedIn && !silent) {
+            setStatus("Sesion TikTok detectada en el navegador remoto. Ya puedes generar la stream key.", "success");
+          } else if (!silent) {
+            setStatus("Pantalla remota actualizada. Haz click sobre la imagen para interactuar.", "success");
           }
         } catch (error) {
           if (!silent) {
@@ -463,11 +478,18 @@
         }
       }
 
-      function startLoginPolling() {
-        stopLoginPolling();
-        loginPollTimer = setInterval(() => {
-          refreshLoginStatus(true);
-        }, 5000);
+      function stopRemoteBrowserPolling() {
+        if (remoteFramePollTimer) {
+          clearInterval(remoteFramePollTimer);
+          remoteFramePollTimer = null;
+        }
+      }
+
+      function startRemoteBrowserPolling() {
+        stopRemoteBrowserPolling();
+        remoteFramePollTimer = setInterval(() => {
+          refreshRemoteBrowserFrame(true);
+        }, 2500);
       }
 
       async function callApi(endpoint, loadingMessage) {
@@ -475,14 +497,7 @@
         setStatus(loadingMessage, null);
 
         try {
-          const response = await fetch(endpoint);
-          const data = await response.json();
-
-          if (!response.ok || !data.ok) {
-            throw new Error(data.message || "Error inesperado.");
-          }
-
-          return data;
+          return await requestJson(endpoint);
         } finally {
           setBusy(false);
         }
@@ -493,20 +508,13 @@
         setStatus(loadingMessage, null);
 
         try {
-          const response = await fetch(endpoint, {
+          return await requestJson(endpoint, {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
             },
             body: JSON.stringify(payload)
           });
-          const data = await response.json();
-
-          if (!response.ok || !data.ok) {
-            throw new Error(data.message || "Error inesperado.");
-          }
-
-          return data;
         } finally {
           setBusy(false);
         }
@@ -519,85 +527,225 @@
         updateActionState();
       }
 
-      async function importCookiesText(rawValue, loadingMessage = "Importando sesion TikTok...") {
-        const data = await postJson(
-          "/import-cookies",
-          { cookies: rawValue },
-          loadingMessage
-        );
+      async function openRemoteLogin() {
+        const data = await callApi("/remote-browser/open-login", "Abriendo navegador remoto TikTok...");
+        updateRemoteBrowserFrame(data);
+        startRemoteBrowserPolling();
+        return data;
+      }
 
-        if (data.loginPreview) {
-          showLoginPreview(data.loginPreview);
+      async function postRemoteAction(endpoint, payload, loadingMessage, successMessage) {
+        const data = await postJson(endpoint, payload, loadingMessage);
+        updateRemoteBrowserFrame(data);
+        if (successMessage) {
+          setStatus(successMessage, "success");
         }
-
-        stopLoginPolling();
-        hideLoginPreview();
-        liveStarted = false;
-        updateActionState();
-        setStatus("Sesion importada correctamente. Ya puedes generar la stream key.", "success");
         return data;
       }
 
       loginBtn.addEventListener("click", async () => {
         try {
-          const data = await callApi("/login", "Abriendo login TikTok en Puppeteer...");
-          if (data.loginPreview) {
-            showLoginPreview(data.loginPreview);
-          }
-
-          const statusMessage = data.loggedIn
-            ? "TikTok ya estaba autenticado. Ya puedes generar la stream key."
-            : (data.warning ? `${data.message} ${data.warning}` : data.message);
-          setStatus(statusMessage, "success");
-
-          if (!data.loggedIn) {
-            startLoginPolling();
-          } else {
-            hideLoginPreview();
-            stopLoginPolling();
-          }
+          const data = await openRemoteLogin();
+          setStatus(
+            data.loggedIn
+              ? "Sesion TikTok detectada en el navegador remoto. Ya puedes generar la stream key."
+              : "Navegador remoto abierto. Haz click sobre la imagen y completa el login.",
+            "success"
+          );
         } catch (error) {
           setStatus(error.message, "error");
         }
       });
 
       refreshLoginBtn.addEventListener("click", async () => {
-        await refreshLoginStatus(false);
+        startRemoteBrowserPolling();
+        await refreshRemoteBrowserFrame(false);
       });
 
-      loadCookiesFileBtn.addEventListener("click", () => {
-        cookiesFileInput.click();
-      });
-
-      cookiesFileInput.addEventListener("change", async () => {
-        const [file] = cookiesFileInput.files || [];
-
-        if (!file) {
-          return;
-        }
-
+      openRemoteLoginBtn.addEventListener("click", async () => {
         try {
-          const text = await file.text();
-          cookiesInput.value = text;
-          cookiesFileName.textContent = `Archivo cargado: ${file.name}`;
-          await importCookiesText(text, "Leyendo e importando archivo de cookies...");
+          const data = await openRemoteLogin();
+          setStatus(
+            data.loggedIn
+              ? "Sesion TikTok detectada en el navegador remoto."
+              : "Login remoto abierto. Continúa dentro de la pantalla remota.",
+            "success"
+          );
         } catch (error) {
-          setStatus(error.message || "No se pudo leer el archivo de cookies.", "error");
-        } finally {
-          cookiesFileInput.value = "";
+          setStatus(error.message, "error");
         }
       });
 
-      importCookiesBtn.addEventListener("click", async () => {
-        const rawValue = cookiesInput.value.trim();
+      remoteBackBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/navigation",
+            { action: "back" },
+            "Volviendo atras en el navegador remoto...",
+            "Navegacion remota actualizada."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
 
-        if (!rawValue) {
-          setStatus("Pega primero el JSON de cookies de TikTok.", "error");
+      remoteReloadBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/navigation",
+            { action: "reload" },
+            "Recargando navegador remoto...",
+            "Pantalla remota recargada."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteScrollUpBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/scroll",
+            { deltaY: -700 },
+            "Enviando scroll arriba...",
+            "Scroll remoto enviado."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteScrollDownBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/scroll",
+            { deltaY: 700 },
+            "Enviando scroll abajo...",
+            "Scroll remoto enviado."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteTabBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/key",
+            { key: "Tab" },
+            "Enviando Tab...",
+            "Tecla Tab enviada."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteEnterBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/key",
+            { key: "Enter" },
+            "Enviando Enter...",
+            "Tecla Enter enviada."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteBackspaceBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/key",
+            { key: "Backspace" },
+            "Enviando Backspace...",
+            "Tecla Backspace enviada."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteTypeBtn.addEventListener("click", async () => {
+        const text = remoteTextInput.value;
+
+        if (!text.trim()) {
+          setStatus("Escribe primero algo para enviarlo al navegador remoto.", "error");
           return;
         }
 
         try {
-          await importCookiesText(rawValue);
+          await postRemoteAction(
+            "/remote-browser/type",
+            { text },
+            "Escribiendo texto en el navegador remoto...",
+            "Texto enviado al navegador remoto."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteTypeEnterBtn.addEventListener("click", async () => {
+        const text = remoteTextInput.value;
+
+        if (!text.trim()) {
+          setStatus("Escribe primero algo para enviarlo al navegador remoto.", "error");
+          return;
+        }
+
+        try {
+          await postRemoteAction(
+            "/remote-browser/type",
+            { text, pressEnter: true },
+            "Escribiendo texto y enviando Enter...",
+            "Texto y Enter enviados al navegador remoto."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteClearTypeBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/type",
+            { clearFirst: true },
+            "Limpiando el campo activo del navegador remoto...",
+            "Campo remoto limpiado."
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      remoteTextInput.addEventListener("keydown", async (event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+
+        event.preventDefault();
+        remoteTypeEnterBtn.click();
+      });
+
+      loginPreviewImage.addEventListener("click", async (event) => {
+        if (!loginPreviewImage.src) {
+          setStatus("Abre primero el navegador remoto para poder hacer click.", "error");
+          return;
+        }
+
+        const rect = loginPreviewImage.getBoundingClientRect();
+        const normalizedX = (event.clientX - rect.left) / rect.width;
+        const normalizedY = (event.clientY - rect.top) / rect.height;
+
+        try {
+          await postRemoteAction(
+            "/remote-browser/click",
+            { x: normalizedX, y: normalizedY },
+            "Enviando click remoto...",
+            "Click remoto enviado."
+          );
         } catch (error) {
           setStatus(error.message, "error");
         }
@@ -611,6 +759,7 @@
           liveStarted = Boolean(data.liveStarted);
           updateActionState();
           setStatus(data.message, "success");
+          refreshRemoteBrowserFrame(true);
         } catch (error) {
           resetLiveFields();
           setStatus(error.message, "error");
@@ -623,6 +772,7 @@
           liveStarted = Boolean(data.liveStarted);
           updateActionState();
           setStatus(data.message, "success");
+          refreshRemoteBrowserFrame(true);
         } catch (error) {
           setStatus(error.message, "error");
         }
@@ -634,6 +784,7 @@
           liveStarted = Boolean(data.liveStarted);
           updateActionState();
           setStatus(data.message, "success");
+          refreshRemoteBrowserFrame(true);
         } catch (error) {
           setStatus(error.message, "error");
         }
@@ -642,17 +793,21 @@
       logoutBtn.addEventListener("click", async () => {
         try {
           const data = await callApi("/logout", "Cerrando sesion TikTok...");
-          stopLoginPolling();
           resetLiveFields();
-          if (data.loginPreview) {
-            showLoginPreview(data.loginPreview);
-          }
+          updateRemoteBrowserFrame({
+            image: data.loginPreview,
+            currentUrl: data.currentUrl,
+            loggedIn: data.loggedIn,
+            liveStarted: false
+          });
+          startRemoteBrowserPolling();
           setStatus(data.message, "success");
         } catch (error) {
           setStatus(error.message, "error");
         }
       });
 
+      setRemotePlaceholder();
       updateActionState();
     </script>
   </body>
