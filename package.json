@@ -4,6 +4,7 @@
   "description": "MVP Node.js + Puppeteer para generar stream keys de TikTok y lanzar LIVE desde OBS.",
   "main": "server.js",
   "scripts": {
+    "postinstall": "npx puppeteer browsers install chrome",
     "start": "node server.js"
   },
   "engines": {
@@ -13,7 +14,5 @@
     "express": "^4.19.2",
     "puppeteer": "^22.15.0"
   }
-  "scripts": {
-  "start": "node server.js",
-  "postinstall": "npx puppeteer browsers install chrome"
+  
 }
