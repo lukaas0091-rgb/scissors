@@ -135,6 +135,20 @@
         font-size: 0.97rem;
       }
 
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        resize: vertical;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: rgba(0, 0, 0, 0.18);
+        color: var(--text);
+        font-size: 0.95rem;
+        font-family: Consolas, "Courier New", monospace;
+        line-height: 1.45;
+      }
+
       .status {
         margin-top: 18px;
         padding: 14px 16px;
@@ -272,6 +286,41 @@
         line-height: 1.6;
       }
 
+      .helper {
+        margin-top: 18px;
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(31, 39, 51, 0.92), rgba(22, 27, 34, 0.92));
+      }
+
+      .helper h2 {
+        margin: 0 0 10px;
+        font-size: 1.05rem;
+      }
+
+      .helper p,
+      .helper li,
+      .helper summary {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .helper details {
+        margin-top: 14px;
+      }
+
+      .helper ol {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+
+      .helper code {
+        background: rgba(255, 255, 255, 0.06);
+        padding: 2px 6px;
+        border-radius: 8px;
+      }
+
       @media (max-width: 700px) {
         .app {
           padding: 22px;
@@ -316,6 +365,37 @@
       </section>
 
       <div id="status" class="status">Esperando acción.</div>
+
+      <section class="helper">
+        <h2>Plan B: importar sesión por cookies</h2>
+        <p>
+          Si el login remoto no te deja vincular la cuenta, pega aquí el valor completo del
+          header <strong>Cookie</strong> de una sesión TikTok ya iniciada en tu navegador normal.
+        </p>
+        <div class="field">
+          <label for="cookieInput">Header Cookie o JSON de cookies</label>
+          <textarea
+            id="cookieInput"
+            placeholder="Ejemplo: sessionid=...; sid_tt=...; uid_tt=...; msToken=..."
+          ></textarea>
+        </div>
+        <div class="preview-actions">
+          <button id="importCookiesBtn" class="secondary" type="button">Importar sesión</button>
+        </div>
+        <details>
+          <summary>Dónde conseguir el Cookie header sin descargar nada</summary>
+          <ol>
+            <li>Abre TikTok en Chrome e inicia sesión normalmente.</li>
+            <li>Pulsa F12 para abrir DevTools.</li>
+            <li>Ve a la pestaña Network.</li>
+            <li>Recarga la página con F5.</li>
+            <li>Haz clic en la primera solicitud a <code>https://www.tiktok.com/</code>.</li>
+            <li>En Headers busca Request Headers.</li>
+            <li>Copia el valor completo de <code>cookie:</code>.</li>
+            <li>Pégalo aquí y pulsa <strong>Importar sesión</strong>.</li>
+          </ol>
+        </details>
+      </section>
 
       <section id="loginPreviewPanel" class="preview">
         <h2>Navegador remoto TikTok</h2>
@@ -374,6 +454,7 @@
       <ol class="flow">
         <li>Presiona <strong>Vincular TikTok</strong>.</li>
         <li>Usa <strong>Usuario/email</strong> para abrir el formulario remoto y completar el login.</li>
+        <li>Si el login remoto falla, pega el <strong>Cookie header</strong> en el bloque de importación manual.</li>
         <li>Presiona <strong>Generar Stream Key</strong> para extraer server y key.</li>
         <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong> o <strong>Detener LIVE</strong>.</li>
       </ol>
@@ -390,6 +471,7 @@
       const startLiveBtn = document.getElementById("startLiveBtn");
       const stopLiveBtn = document.getElementById("stopLiveBtn");
       const logoutBtn = document.getElementById("logoutBtn");
+      const importCookiesBtn = document.getElementById("importCookiesBtn");
       const refreshLoginBtn = document.getElementById("refreshLoginBtn");
       const openRemoteLoginBtn = document.getElementById("openRemoteLoginBtn");
       const showRemoteFormBtn = document.getElementById("showRemoteFormBtn");
@@ -407,6 +489,7 @@
       const statusBox = document.getElementById("status");
       const serverInput = document.getElementById("server");
       const keyInput = document.getElementById("key");
+      const cookieInput = document.getElementById("cookieInput");
       const loginPreviewPanel = document.getElementById("loginPreviewPanel");
       const loginPreviewImage = document.getElementById("loginPreviewImage");
       const remoteQrPanel = document.getElementById("remoteQrPanel");
@@ -423,6 +506,7 @@
         generateBtn.disabled = isBusy;
         refreshLoginBtn.disabled = isBusy;
         logoutBtn.disabled = isBusy;
+        importCookiesBtn.disabled = isBusy;
         openRemoteLoginBtn.disabled = isBusy;
         showRemoteFormBtn.disabled = isBusy;
         showRemoteQrBtn.disabled = isBusy;
@@ -437,6 +521,7 @@
         remoteTypeEnterBtn.disabled = isBusy;
         remoteClearTypeBtn.disabled = isBusy;
         remoteTextInput.disabled = isBusy;
+        cookieInput.disabled = isBusy;
         startLiveBtn.disabled = isBusy || !(serverInput.value && keyInput.value);
         stopLiveBtn.disabled = isBusy || !liveStarted;
       }
@@ -618,6 +703,33 @@
               ? "Sesion TikTok detectada en el navegador remoto. Ya puedes generar la stream key."
               : "Navegador remoto abierto. Haz click sobre la imagen y completa el login.",
             "success"
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      importCookiesBtn.addEventListener("click", async () => {
+        const cookies = cookieInput.value.trim();
+
+        if (!cookies) {
+          setStatus("Pega primero el header Cookie o un JSON de cookies de TikTok.", "error");
+          return;
+        }
+
+        try {
+          const data = await postJson(
+            "/import-cookies",
+            { cookies },
+            "Importando sesión TikTok desde cookies..."
+          );
+          updateRemoteBrowserFrame(data);
+          startRemoteBrowserPolling();
+          setStatus(
+            data.loggedIn
+              ? "Sesión TikTok importada correctamente. Ya puedes generar la stream key."
+              : data.message,
+            data.loggedIn ? "success" : "error"
           );
         } catch (error) {
           setStatus(error.message, "error");
