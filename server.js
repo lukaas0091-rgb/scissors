@@ -15,6 +15,8 @@ const state = {
   page: null,
   launchPromise: null,
   busy: false,
+  loginPreview: null,
+  loginPreviewAt: null,
   liveConfig: {
     streamUrl: null,
     streamKey: null,
@@ -300,6 +302,21 @@ async function getSessionStatus(page) {
   };
 }
 
+async function updateLoginPreview(page) {
+  const screenshotBase64 = await page.screenshot({
+    type: "png",
+    encoding: "base64"
+  });
+
+  state.loginPreview = `data:image/png;base64,${screenshotBase64}`;
+  state.loginPreviewAt = new Date().toISOString();
+
+  return {
+    image: state.loginPreview,
+    capturedAt: state.loginPreviewAt
+  };
+}
+
 async function clickByVisibleText(page, labels) {
   const handle = await page.evaluateHandle((visibleLabels) => {
     const normalize = (value) =>
@@ -495,23 +512,62 @@ app.get("/", (req, res) => {
 
 app.get("/login", async (req, res) => {
   try {
-    const page = await withBusyBrowser(async () => {
+    const payload = await withBusyBrowser(async () => {
       const activePage = await getPage();
       await activePage.goto(TIKTOK_LOGIN_URL, { waitUntil: "domcontentloaded" });
       await sleep(2500);
-      return activePage;
-    });
+      await dismissCommonPopups(activePage);
+      const preview = await updateLoginPreview(activePage);
+      const session = await getSessionStatus(activePage);
 
-    const session = await getSessionStatus(page);
+      return {
+        page: activePage,
+        preview,
+        session
+      };
+    });
 
     res.json({
       ok: true,
-      message: "TikTok Login abierto en la sesión Puppeteer global.",
+      message:
+        "TikTok Login abierto en la sesion Puppeteer global. Si aparece un QR en la vista previa, escanealo con la app de TikTok.",
       headless: true,
       warning:
-        "En Render Free el navegador es headless; este MVP conserva la sesión, pero el login manual remoto puede requerir una capa visual adicional si TikTok pide interacción directa.",
-      currentUrl: session.currentUrl,
-      loggedIn: session.loggedIn
+        "En Render Free no ves el navegador real de Puppeteer. Por eso te devolvemos una vista previa del login para intentar entrar por QR.",
+      currentUrl: payload.session.currentUrl,
+      loggedIn: payload.session.loggedIn,
+      loginPreview: payload.preview.image,
+      loginPreviewAt: payload.preview.capturedAt
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get("/login-status", async (req, res) => {
+  try {
+    const payload = await withBusyBrowser(async () => {
+      const page = await getPage();
+      const session = await getSessionStatus(page);
+
+      let preview = null;
+      if (!session.loggedIn) {
+        preview = await updateLoginPreview(page);
+      }
+
+      return {
+        session,
+        preview
+      };
+    });
+
+    res.json({
+      ok: true,
+      loggedIn: payload.session.loggedIn,
+      currentUrl: payload.session.currentUrl,
+      cookiesFound: payload.session.cookiesFound,
+      loginPreview: payload.preview ? payload.preview.image : state.loginPreview,
+      loginPreviewAt: payload.preview ? payload.preview.capturedAt : state.loginPreviewAt
     });
   } catch (error) {
     sendError(res, error);
