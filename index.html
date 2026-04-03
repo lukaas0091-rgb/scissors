@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TikTok Stream Key Generator</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --panel-soft: #1f2733;
+        --text: #e6edf3;
+        --muted: #96a3b5;
+        --accent: #25f4ee;
+        --accent-2: #fe2c55;
+        --border: rgba(255, 255, 255, 0.08);
+        --success: #2ecc71;
+        --error: #ff6b6b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(37, 244, 238, 0.14), transparent 28%),
+          radial-gradient(circle at top right, rgba(254, 44, 85, 0.15), transparent 24%),
+          linear-gradient(180deg, #0b0f14 0%, #111827 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .app {
+        width: min(760px, 100%);
+        background: rgba(13, 17, 23, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+        backdrop-filter: blur(12px);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(2rem, 4vw, 3rem);
+      }
+
+      .lead {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+
+      button {
+        border: none;
+        border-radius: 14px;
+        padding: 14px 16px;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        filter: brightness(1.04);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .primary {
+        background: linear-gradient(135deg, var(--accent) 0%, #4af0e8 100%);
+        color: #091016;
+      }
+
+      .secondary {
+        background: linear-gradient(135deg, var(--accent-2) 0%, #ff6b89 100%);
+        color: white;
+      }
+
+      .ghost {
+        background: linear-gradient(135deg, #303a4a 0%, #202733 100%);
+        color: var(--text);
+      }
+
+      .panel {
+        background: linear-gradient(180deg, rgba(31, 39, 51, 0.92), rgba(22, 27, 34, 0.92));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .field + .field {
+        margin-top: 14px;
+      }
+
+      label {
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+
+      input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: rgba(0, 0, 0, 0.18);
+        color: var(--text);
+        font-size: 0.97rem;
+      }
+
+      .status {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        line-height: 1.5;
+      }
+
+      .status.success {
+        border-color: rgba(46, 204, 113, 0.45);
+        color: #d8ffe9;
+      }
+
+      .status.error {
+        border-color: rgba(255, 107, 107, 0.45);
+        color: #ffe0e0;
+      }
+
+      .flow {
+        margin: 20px 0 0;
+        padding-left: 20px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .note {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.6;
+      }
+
+      @media (max-width: 700px) {
+        .app {
+          padding: 22px;
+          border-radius: 20px;
+        }
+
+        .actions {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <h1>TikTok LIVE Key</h1>
+      <p class="lead">
+        Vincula tu sesión TikTok, genera la stream key para OBS y dispara el botón
+        <strong>Go LIVE</strong> desde un solo panel.
+      </p>
+
+      <section class="actions">
+        <button id="loginBtn" class="primary">Vincular TikTok</button>
+        <button id="generateBtn" class="secondary">Generar Stream Key</button>
+        <button id="startLiveBtn" class="ghost" disabled>Iniciar LIVE</button>
+      </section>
+
+      <section class="panel">
+        <div class="field">
+          <label for="server">Server</label>
+          <input id="server" type="text" readonly placeholder="Aquí aparecerá el RTMP server" />
+        </div>
+
+        <div class="field">
+          <label for="key">Key</label>
+          <input id="key" type="text" readonly placeholder="Aquí aparecerá la stream key" />
+        </div>
+      </section>
+
+      <div id="status" class="status">Esperando acción.</div>
+
+      <ol class="flow">
+        <li>Presiona <strong>Vincular TikTok</strong>.</li>
+        <li>Completa el login en la sesión Puppeteer si tu entorno lo permite.</li>
+        <li>Presiona <strong>Generar Stream Key</strong> para extraer server y key.</li>
+        <li>Pega la key en OBS y luego usa <strong>Iniciar LIVE</strong>.</li>
+      </ol>
+
+      <p class="note">
+        Este MVP mantiene un único navegador Puppeteer abierto en memoria. En Render
+        Free la sesión se conserva mientras el contenedor siga activo.
+      </p>
+    </main>
+
+    <script>
+      const loginBtn = document.getElementById("loginBtn");
+      const generateBtn = document.getElementById("generateBtn");
+      const startLiveBtn = document.getElementById("startLiveBtn");
+      const statusBox = document.getElementById("status");
+      const serverInput = document.getElementById("server");
+      const keyInput = document.getElementById("key");
+
+      function setBusy(isBusy) {
+        loginBtn.disabled = isBusy;
+        generateBtn.disabled = isBusy;
+        startLiveBtn.disabled = isBusy || !(serverInput.value && keyInput.value);
+      }
+
+      function setStatus(message, type) {
+        statusBox.textContent = message;
+        statusBox.className = "status";
+        if (type) {
+          statusBox.classList.add(type);
+        }
+      }
+
+      async function callApi(endpoint, loadingMessage) {
+        setBusy(true);
+        setStatus(loadingMessage, null);
+
+        try {
+          const response = await fetch(endpoint);
+          const data = await response.json();
+
+          if (!response.ok || !data.ok) {
+            throw new Error(data.message || "Error inesperado.");
+          }
+
+          return data;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      loginBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi("/login", "Abriendo login TikTok en Puppeteer...");
+          const statusMessage = data.warning
+            ? `${data.message} ${data.warning}`
+            : data.message;
+          setStatus(statusMessage, "success");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      generateBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi("/generate", "Generando stream key...");
+          serverInput.value = data.server || "";
+          keyInput.value = data.key || "";
+          startLiveBtn.disabled = !(serverInput.value && keyInput.value);
+          setStatus(data.message, "success");
+        } catch (error) {
+          serverInput.value = "";
+          keyInput.value = "";
+          startLiveBtn.disabled = true;
+          setStatus(error.message, "error");
+        }
+      });
+
+      startLiveBtn.addEventListener("click", async () => {
+        try {
+          const data = await callApi("/start-live", "Presionando Go LIVE...");
+          setStatus(data.message, "success");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+    </script>
+  </body>
+</html>

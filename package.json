@@ -1,0 +1,16 @@
+{
+  "name": "tiktok-stream-key-mvp",
+  "version": "1.0.0",
+  "description": "MVP Node.js + Puppeteer para generar stream keys de TikTok y lanzar LIVE desde OBS.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "puppeteer": "^22.15.0"
+  }
+}
