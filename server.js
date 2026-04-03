@@ -25,6 +25,8 @@ const state = {
   }
 };
 
+app.use(express.json({ limit: "2mb" }));
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -302,6 +304,62 @@ async function getSessionStatus(page) {
   };
 }
 
+function normalizeCookie(cookie) {
+  const normalized = {
+    name: String(cookie.name || "").trim(),
+    value: String(cookie.value || ""),
+    domain: cookie.domain,
+    path: cookie.path || "/",
+    secure: Boolean(cookie.secure),
+    httpOnly: Boolean(cookie.httpOnly)
+  };
+
+  if (cookie.sameSite && ["Strict", "Lax", "None"].includes(cookie.sameSite)) {
+    normalized.sameSite = cookie.sameSite;
+  }
+
+  if (typeof cookie.expires === "number" && Number.isFinite(cookie.expires)) {
+    normalized.expires = cookie.expires;
+  }
+
+  return normalized;
+}
+
+function parseCookiePayload(payload) {
+  let rawCookies = payload;
+
+  if (typeof payload === "string") {
+    rawCookies = JSON.parse(payload);
+  }
+
+  if (rawCookies && Array.isArray(rawCookies.cookies)) {
+    rawCookies = rawCookies.cookies;
+  }
+
+  if (!Array.isArray(rawCookies)) {
+    const error = new Error(
+      "El JSON de cookies no es valido. Debe ser un array o un objeto con la propiedad cookies."
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const cookies = rawCookies
+    .filter((cookie) => cookie && cookie.name && cookie.value !== undefined)
+    .map(normalizeCookie)
+    .filter((cookie) => /tiktok\.com$/i.test(String(cookie.domain || "").replace(/^\./, "")));
+
+  if (!cookies.length) {
+    const error = new Error(
+      "No encontre cookies de TikTok en el JSON. Exporta las cookies de tiktok.com y vuelve a intentar."
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return cookies;
+}
+
 async function updateLoginPreview(page) {
   const screenshotBase64 = await page.screenshot({
     type: "png",
@@ -534,6 +592,50 @@ app.get("/login", async (req, res) => {
       headless: true,
       warning:
         "En Render Free no ves el navegador real de Puppeteer. Por eso te devolvemos una vista previa del login para intentar entrar por QR.",
+      currentUrl: payload.session.currentUrl,
+      loggedIn: payload.session.loggedIn,
+      loginPreview: payload.preview.image,
+      loginPreviewAt: payload.preview.capturedAt
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/import-cookies", async (req, res) => {
+  try {
+    const payload = await withBusyBrowser(async () => {
+      const cookies = parseCookiePayload(req.body && req.body.cookies ? req.body.cookies : req.body);
+      const page = await getPage();
+      const browserContext = page.browserContext();
+
+      await page.goto("https://www.tiktok.com", { waitUntil: "domcontentloaded" });
+      await browserContext.setCookie(...cookies);
+      await page.goto("https://www.tiktok.com/foryou", { waitUntil: "domcontentloaded" });
+      await sleep(2500);
+
+      const session = await getSessionStatus(page);
+      const preview = await updateLoginPreview(page);
+
+      return {
+        session,
+        preview,
+        importedCount: cookies.length
+      };
+    });
+
+    if (!payload.session.loggedIn) {
+      const error = new Error(
+        "Importe las cookies, pero TikTok aun no reconoce la sesion. Revisa que hayas exportado las cookies correctas de una sesion ya iniciada."
+      );
+      error.statusCode = 422;
+      throw error;
+    }
+
+    res.json({
+      ok: true,
+      message: "Sesion TikTok importada correctamente en Puppeteer.",
+      importedCount: payload.importedCount,
       currentUrl: payload.session.currentUrl,
       loggedIn: payload.session.loggedIn,
       loginPreview: payload.preview.image,
