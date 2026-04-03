@@ -286,6 +286,7 @@
         <p>
           Esta vista muestra el navegador de Puppeteer dentro de la web. Haz click sobre la imagen,
           escribe en la caja inferior y usa los botones rapidos para iniciar sesion sin salir de la pagina.
+          Si quieres entrar por QR, pulsa <strong>Mostrar QR</strong> primero.
         </p>
         <div class="remote-meta">
           <div>
@@ -300,6 +301,7 @@
         <img id="loginPreviewImage" class="remote-browser-image" alt="Navegador remoto de TikTok" />
         <div class="preview-actions">
           <button id="openRemoteLoginBtn" class="primary" type="button">Abrir login remoto</button>
+          <button id="showRemoteQrBtn" class="secondary" type="button">Mostrar QR</button>
           <button id="remoteBackBtn" class="ghost" type="button">Atras</button>
           <button id="remoteReloadBtn" class="ghost" type="button">Recargar</button>
           <button id="refreshLoginBtn" class="ghost" type="button">Actualizar vista</button>
@@ -343,6 +345,7 @@
       const logoutBtn = document.getElementById("logoutBtn");
       const refreshLoginBtn = document.getElementById("refreshLoginBtn");
       const openRemoteLoginBtn = document.getElementById("openRemoteLoginBtn");
+      const showRemoteQrBtn = document.getElementById("showRemoteQrBtn");
       const remoteBackBtn = document.getElementById("remoteBackBtn");
       const remoteReloadBtn = document.getElementById("remoteReloadBtn");
       const remoteScrollUpBtn = document.getElementById("remoteScrollUpBtn");
@@ -371,6 +374,7 @@
         refreshLoginBtn.disabled = isBusy;
         logoutBtn.disabled = isBusy;
         openRemoteLoginBtn.disabled = isBusy;
+        showRemoteQrBtn.disabled = isBusy;
         remoteBackBtn.disabled = isBusy;
         remoteReloadBtn.disabled = isBusy;
         remoteScrollUpBtn.disabled = isBusy;
@@ -570,6 +574,19 @@
               ? "Sesion TikTok detectada en el navegador remoto."
               : "Login remoto abierto. Continúa dentro de la pantalla remota.",
             "success"
+          );
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      });
+
+      showRemoteQrBtn.addEventListener("click", async () => {
+        try {
+          await postRemoteAction(
+            "/remote-browser/navigation",
+            { action: "show-qr" },
+            "Abriendo el QR de TikTok...",
+            "QR remoto actualizado. Escanealo desde tu telefono."
           );
         } catch (error) {
           setStatus(error.message, "error");
