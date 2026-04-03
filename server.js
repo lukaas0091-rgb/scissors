@@ -869,6 +869,173 @@ async function extractFromDom(page) {
   return result;
 }
 
+async function extractFromMarkup(page) {
+  const result = {
+    streamUrl: null,
+    streamKey: null,
+    source: null,
+    capturedAt: null
+  };
+
+  const html = await page.content().catch(() => "");
+  if (html) {
+    mergeLiveConfig(result, extractStreamData(html, `${page.url()}#html`));
+  }
+
+  const scripts = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll("script"))
+        .map((element) => element.textContent || "")
+        .join("\n")
+    )
+    .catch(() => "");
+
+  if (scripts) {
+    mergeLiveConfig(result, extractStreamData(scripts, `${page.url()}#scripts`));
+  }
+
+  return result;
+}
+
+async function inspectLiveCreatorState(page) {
+  const payload = await page
+    .evaluate(() => {
+      const normalize = (value) =>
+        String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const isVisible = (element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style &&
+          style.visibility !== "hidden" &&
+          style.display !== "none" &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+
+      const buttonTexts = Array.from(
+        document.querySelectorAll("button, a, [role='button'], div, span")
+      )
+        .filter((element) => isVisible(element))
+        .map((element) => normalize(element.innerText || element.textContent))
+        .filter(Boolean)
+        .slice(0, 120);
+
+      return {
+        title: normalize(document.title),
+        text: normalize(document.body ? document.body.innerText : "").slice(0, 9000),
+        buttons: buttonTexts
+      };
+    })
+    .catch(() => ({
+      title: "",
+      text: "",
+      buttons: []
+    }));
+
+  const searchable = normalizeText(
+    [payload.title, payload.text, ...(payload.buttons || [])].join(" ")
+  );
+
+  const softwarePatterns = [
+    /transmitir desde software/i,
+    /transmitir con software/i,
+    /stream with software/i,
+    /use streaming software/i,
+    /streaming software/i,
+    /software de streaming/i,
+    /software streaming/i
+  ];
+  const rtmpPatterns = [
+    /stream key/i,
+    /stream url/i,
+    /server url/i,
+    /rtmp/i,
+    /clave de stream/i,
+    /url del servidor/i
+  ];
+  const liveAccessPatterns = [
+    /not eligible/i,
+    /can'?t go live/i,
+    /go live isn'?t available/i,
+    /minimum followers/i,
+    /must be at least/i,
+    /requirements/i,
+    /access to live/i,
+    /live access/i,
+    /not available in your region/i,
+    /feature unavailable/i,
+    /no tienes acceso/i,
+    /no cumple/i,
+    /no cumples/i,
+    /no esta disponible/i,
+    /no está disponible/i,
+    /no puedes transmitir/i
+  ];
+  const loginPatterns = [
+    /log in/i,
+    /inicia sesión/i,
+    /iniciar sesión/i,
+    /login/i
+  ];
+
+  return {
+    currentUrl: page.url(),
+    title: payload.title,
+    hasSoftwareOption: softwarePatterns.some((pattern) => pattern.test(searchable)),
+    hasRtmpLabels: rtmpPatterns.some((pattern) => pattern.test(searchable)),
+    indicatesNoLiveAccess: liveAccessPatterns.some((pattern) => pattern.test(searchable)),
+    indicatesLoginScreen:
+      /\/login(\/|$)/i.test(page.url()) || loginPatterns.some((pattern) => pattern.test(searchable)),
+    textSnippet: payload.text.slice(0, 320),
+    buttonSnippet: (payload.buttons || []).slice(0, 12)
+  };
+}
+
+function buildGenerateFailureError(diagnosis) {
+  const baseError = new Error(
+    "No se pudo detectar la stream key todavÃ­a. TikTok no mostrÃ³ la configuraciÃ³n RTMP en esta sesiÃ³n."
+  );
+  baseError.statusCode = 422;
+  baseError.details = diagnosis;
+
+  if (!diagnosis) {
+    return baseError;
+  }
+
+  if (/\/login(\/|$)/i.test(diagnosis.currentUrl || "") || diagnosis.indicatesLoginScreen) {
+    baseError.message =
+      "La sesiÃ³n de TikTok se perdiÃ³ al abrir LIVE Creator. Vuelve a vincular la cuenta o importa un Cookie header nuevo.";
+    return baseError;
+  }
+
+  if (diagnosis.indicatesNoLiveAccess) {
+    baseError.message =
+      "La cuenta iniciÃ³ sesiÃ³n, pero TikTok no le dio acceso a LIVE o a transmitir con software. " +
+      "Debes confirmar en esa misma cuenta que LIVE Creator y RTMP/software estÃ¡n habilitados.";
+    return baseError;
+  }
+
+  if (!diagnosis.hasSoftwareOption) {
+    baseError.message =
+      "EntrÃ© a TikTok LIVE Creator, pero no apareciÃ³ la opciÃ³n 'Transmitir desde software'. " +
+      "Eso suele significar que la cuenta no tiene RTMP/software habilitado o que TikTok cambiÃ³ ese panel.";
+    return baseError;
+  }
+
+  if (diagnosis.hasSoftwareOption && !diagnosis.hasRtmpLabels) {
+    baseError.message =
+      "TikTok sÃ­ mostrÃ³ la zona de LIVE, pero no expuso Server/Key RTMP. Puede faltar un paso manual en LIVE Creator o tu cuenta no tiene software streaming completo.";
+    return baseError;
+  }
+
+  return baseError;
+}
+
 function createResponseCollector(page) {
   const collected = {
     streamUrl: null,
@@ -954,6 +1121,17 @@ function sendError(res, error) {
     message: error.message || "Ocurrió un error inesperado."
   });
 }
+
+function sendErrorDetailed(res, error) {
+  const statusCode = error.statusCode || 500;
+  res.status(statusCode).json({
+    ok: false,
+    message: error.message || "OcurriÃ³ un error inesperado.",
+    details: error.details || null
+  });
+}
+
+sendError = sendErrorDetailed;
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -1345,44 +1523,53 @@ app.get("/generate", async (req, res) => {
 
       collector = createResponseCollector(page);
 
-      await page.goto(TIKTOK_LIVE_CREATOR_URL, {
-        waitUntil: "domcontentloaded"
-      });
+      await page
+        .goto(TIKTOK_LIVE_CREATOR_URL, {
+          waitUntil: "domcontentloaded"
+        })
+        .catch(() => null);
 
-      await sleep(5000);
+      await sleep(6000);
       await dismissCommonPopups(page);
 
-      await clickByVisibleText(page, [
+      const softwareClicked = await clickByVisibleText(page, [
         "Transmitir desde software",
         "Transmitir con software",
         "Stream with software",
         "Use streaming software",
-        "Streaming software"
+        "Streaming software",
+        "Software de streaming",
+        "Usar software de streaming",
+        "Streaming with software"
       ]);
 
-      await sleep(3000);
+      await sleep(softwareClicked ? 4500 : 2500);
+      await dismissCommonPopups(page);
 
-      const captured = await collector.waitForConfig();
+      const captured = await collector.waitForConfig(DEFAULT_TIMEOUT_MS + 15000);
       collector.stop();
       collector = null;
 
       if (!captured || !captured.streamUrl || !captured.streamKey) {
         const fallback = await extractFromDom(page);
+        const markup = await extractFromMarkup(page);
         const finalData = {
-          streamUrl: captured && captured.streamUrl ? captured.streamUrl : fallback.streamUrl,
-          streamKey: captured && captured.streamKey ? captured.streamKey : fallback.streamKey,
+          streamUrl:
+            (captured && captured.streamUrl) || fallback.streamUrl || markup.streamUrl,
+          streamKey:
+            (captured && captured.streamKey) || fallback.streamKey || markup.streamKey,
           source:
-            (captured && captured.source) || "dom-extraction",
+            (captured && captured.source) || fallback.source || markup.source || "dom-extraction",
           capturedAt:
             (captured && captured.capturedAt) || new Date().toISOString()
         };
 
         if (!finalData.streamUrl || !finalData.streamKey) {
-          const error = new Error(
-            "No se pudo detectar la stream key todavía. TikTok puede haber cambiado el flujo, o la sesión aún no mostró la configuración RTMP."
-          );
-          error.statusCode = 422;
-          throw error;
+          const diagnosis = await inspectLiveCreatorState(page).catch(() => null);
+          if (diagnosis) {
+            diagnosis.softwareClicked = softwareClicked;
+          }
+          throw buildGenerateFailureError(diagnosis);
         }
 
         return finalData;
