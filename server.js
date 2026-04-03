@@ -212,6 +212,147 @@ function tryParseJson(text) {
   }
 }
 
+function isTikTokDomain(value) {
+  const candidate = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\./, "");
+  return candidate === "tiktok.com" || candidate.endsWith(".tiktok.com");
+}
+
+function parseCookieHeader(rawHeader) {
+  const source = String(rawHeader || "")
+    .replace(/^cookie\s*:\s*/i, "")
+    .trim();
+
+  if (!source) {
+    return [];
+  }
+
+  return source
+    .split(/;\s*/)
+    .map((chunk) => {
+      const separatorIndex = chunk.indexOf("=");
+      if (separatorIndex <= 0) {
+        return null;
+      }
+
+      const name = chunk.slice(0, separatorIndex).trim();
+      const value = chunk.slice(separatorIndex + 1).trim();
+
+      if (!name || !value) {
+        return null;
+      }
+
+      return {
+        name,
+        value,
+        url: TIKTOK_HOME_URL,
+        path: "/",
+        secure: true,
+        httpOnly: AUTH_COOKIE_NAMES.has(name)
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeImportedCookie(rawCookie) {
+  if (!rawCookie || typeof rawCookie !== "object") {
+    return null;
+  }
+
+  const name = String(rawCookie.name || "").trim();
+  const value = String(rawCookie.value || "").trim();
+  if (!name || !value) {
+    return null;
+  }
+
+  const normalized = {
+    name,
+    value,
+    path: String(rawCookie.path || "/"),
+    secure: "secure" in rawCookie ? Boolean(rawCookie.secure) : true,
+    httpOnly:
+      "httpOnly" in rawCookie
+        ? Boolean(rawCookie.httpOnly)
+        : AUTH_COOKIE_NAMES.has(name)
+  };
+
+  const rawUrl = String(rawCookie.url || "").trim();
+  const rawDomain = String(rawCookie.domain || "").trim();
+
+  if (rawUrl) {
+    try {
+      const parsedUrl = new URL(rawUrl);
+      if (!isTikTokDomain(parsedUrl.hostname)) {
+        return null;
+      }
+      normalized.url = parsedUrl.origin;
+    } catch (error) {
+      normalized.url = TIKTOK_HOME_URL;
+    }
+  } else if (rawDomain && isTikTokDomain(rawDomain)) {
+    normalized.domain = rawDomain;
+  } else {
+    normalized.url = TIKTOK_HOME_URL;
+  }
+
+  const expires = Number(
+    rawCookie.expires ?? rawCookie.expirationDate ?? rawCookie.expiry ?? NaN
+  );
+  if (Number.isFinite(expires) && expires > 0) {
+    normalized.expires = expires;
+  }
+
+  const sameSite = String(rawCookie.sameSite || "").trim();
+  if (["Strict", "Lax", "None"].includes(sameSite)) {
+    normalized.sameSite = sameSite;
+  }
+
+  return normalized;
+}
+
+function parseImportedCookies(rawInput) {
+  const input = String(rawInput || "").trim();
+  if (!input) {
+    const error = new Error("Pega primero las cookies o el header Cookie de TikTok.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const parsedJson = tryParseJson(input);
+  if (Array.isArray(parsedJson)) {
+    const cookies = parsedJson.map(normalizeImportedCookie).filter(Boolean);
+    if (!cookies.length) {
+      const error = new Error("El JSON no contiene cookies validas de TikTok.");
+      error.statusCode = 400;
+      throw error;
+    }
+    return cookies;
+  }
+
+  if (parsedJson && Array.isArray(parsedJson.cookies)) {
+    const cookies = parsedJson.cookies.map(normalizeImportedCookie).filter(Boolean);
+    if (!cookies.length) {
+      const error = new Error("El JSON no contiene cookies validas de TikTok.");
+      error.statusCode = 400;
+      throw error;
+    }
+    return cookies;
+  }
+
+  const cookies = parseCookieHeader(input);
+  if (!cookies.length) {
+    const error = new Error(
+      "No pude leer cookies validas. Pega el valor completo del header Cookie o un JSON de cookies."
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return cookies;
+}
+
 function extractStreamData(payload, sourceUrl) {
   const result = {
     streamUrl: null,
@@ -1142,6 +1283,45 @@ app.get("/login-status", async (req, res) => {
       loginPreview: payload.preview ? payload.preview.image : state.loginPreview,
       loginPreviewAt: payload.preview ? payload.preview.capturedAt : state.loginPreviewAt
     });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post("/import-cookies", async (req, res) => {
+  try {
+    const payload = await withBusyBrowser(async () => {
+      const page = await getPage();
+      const rawInput = req.body && (req.body.cookies || req.body.cookieHeader || req.body.text);
+      const cookies = parseImportedCookies(rawInput);
+
+      await clearTikTokSession(page).catch(() => null);
+      await page.setCookie(...cookies);
+      await page.goto(TIKTOK_HOME_URL, { waitUntil: "domcontentloaded" }).catch(() => null);
+      await sleep(2500);
+      await dismissCommonPopups(page);
+
+      const session = await getSessionStatus(page);
+      if (!session.loggedIn) {
+        const error = new Error(
+          "Importe las cookies, pero TikTok no acepto la sesion en el servidor. Prueba con un header Cookie mas reciente o inicia sesion de nuevo y vuelve a copiarlo."
+        );
+        error.statusCode = 422;
+        throw error;
+      }
+
+      return {
+        session,
+        page,
+        importedCount: cookies.length
+      };
+    });
+
+    await respondWithRemoteFrame(
+      res,
+      `Sesion TikTok importada correctamente con ${payload.importedCount} cookies.`,
+      payload.page
+    );
   } catch (error) {
     sendError(res, error);
   }
