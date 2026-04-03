@@ -17,6 +17,7 @@ const state = {
   busy: false,
   loginPreview: null,
   loginPreviewAt: null,
+  liveStarted: false,
   liveConfig: {
     streamUrl: null,
     streamKey: null,
@@ -212,6 +213,21 @@ function extractStreamData(payload, sourceUrl) {
   return result;
 }
 
+function resetLiveConfig() {
+  state.liveStarted = false;
+  state.liveConfig = {
+    streamUrl: null,
+    streamKey: null,
+    source: null,
+    capturedAt: null
+  };
+}
+
+function resetLoginPreview() {
+  state.loginPreview = null;
+  state.loginPreviewAt = null;
+}
+
 function formatBrowserLaunchError(error) {
   const message = String(error && error.message ? error.message : error || "");
 
@@ -373,6 +389,37 @@ async function updateLoginPreview(page) {
     image: state.loginPreview,
     capturedAt: state.loginPreviewAt
   };
+}
+
+async function clearTikTokSession(page) {
+  const cookies = await page.cookies(
+    "https://www.tiktok.com",
+    "https://www.tiktok.com/login",
+    "https://www.tiktok.com/foryou",
+    "https://www.tiktok.com/live/creator?lang=en"
+  );
+
+  if (cookies.length) {
+    await page.deleteCookie(...cookies);
+  }
+
+  await page.goto("https://www.tiktok.com/logout", {
+    waitUntil: "domcontentloaded"
+  }).catch(() => null);
+
+  await page.goto(TIKTOK_LOGIN_URL, {
+    waitUntil: "domcontentloaded"
+  }).catch(() => null);
+
+  await page.evaluate(() => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (error) {
+      return null;
+    }
+    return null;
+  }).catch(() => null);
 }
 
 async function clickByVisibleText(page, labels) {
@@ -646,6 +693,37 @@ app.post("/import-cookies", async (req, res) => {
   }
 });
 
+app.get("/logout", async (req, res) => {
+  try {
+    const payload = await withBusyBrowser(async () => {
+      const page = await getPage();
+
+      await clearTikTokSession(page);
+      resetLiveConfig();
+      resetLoginPreview();
+
+      const preview = await updateLoginPreview(page);
+      const session = await getSessionStatus(page);
+
+      return {
+        preview,
+        session
+      };
+    });
+
+    res.json({
+      ok: true,
+      message: "Sesion TikTok cerrada y datos LIVE limpiados.",
+      loggedIn: payload.session.loggedIn,
+      currentUrl: payload.session.currentUrl,
+      loginPreview: payload.preview.image,
+      loginPreviewAt: payload.preview.capturedAt
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get("/login-status", async (req, res) => {
   try {
     const payload = await withBusyBrowser(async () => {
@@ -746,6 +824,7 @@ app.get("/generate", async (req, res) => {
       source: payload.source,
       capturedAt: payload.capturedAt || new Date().toISOString()
     };
+    state.liveStarted = false;
 
     res.json({
       ok: true,
@@ -753,7 +832,8 @@ app.get("/generate", async (req, res) => {
       server: state.liveConfig.streamUrl,
       key: state.liveConfig.streamKey,
       source: state.liveConfig.source,
-      capturedAt: state.liveConfig.capturedAt
+      capturedAt: state.liveConfig.capturedAt,
+      liveStarted: state.liveStarted
     });
   } catch (error) {
     if (collector) {
@@ -793,6 +873,7 @@ app.get("/start-live", async (req, res) => {
       }
 
       await sleep(3000);
+      state.liveStarted = true;
 
       return {
         currentUrl: page.url()
@@ -802,7 +883,76 @@ app.get("/start-live", async (req, res) => {
     res.json({
       ok: true,
       message: "Botón Go LIVE presionado automáticamente.",
-      currentUrl: result.currentUrl
+      currentUrl: result.currentUrl,
+      liveStarted: true
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get("/stop-live", async (req, res) => {
+  try {
+    const result = await withBusyBrowser(async () => {
+      const page = await getPage();
+      const currentUrl = page.url();
+      const shouldNavigate =
+        !/tiktok\.com\/live\/creator/i.test(currentUrl) &&
+        !/tiktok\.com\/live/i.test(currentUrl);
+
+      if (shouldNavigate) {
+        await page.goto(TIKTOK_LIVE_CREATOR_URL, {
+          waitUntil: "domcontentloaded"
+        });
+        await sleep(4000);
+      }
+
+      await dismissCommonPopups(page);
+
+      const clicked = await clickByVisibleText(page, [
+        "End LIVE",
+        "End Live",
+        "Stop LIVE",
+        "Stop Live",
+        "Detener LIVE",
+        "Finalizar LIVE",
+        "Finalizar live",
+        "End stream",
+        "Stop stream"
+      ]);
+
+      if (!clicked) {
+        const error = new Error(
+          "No encontre un boton para detener el LIVE. Verifica que la transmision siga activa en TikTok."
+        );
+        error.statusCode = 422;
+        throw error;
+      }
+
+      await sleep(1500);
+
+      await clickByVisibleText(page, [
+        "End now",
+        "Confirm",
+        "Detener",
+        "Finalizar",
+        "Stop",
+        "End LIVE"
+      ]);
+
+      await sleep(2000);
+      state.liveStarted = false;
+
+      return {
+        currentUrl: page.url()
+      };
+    });
+
+    res.json({
+      ok: true,
+      message: "Intento de detener el LIVE ejecutado.",
+      currentUrl: result.currentUrl,
+      liveStarted: false
     });
   } catch (error) {
     sendError(res, error);
